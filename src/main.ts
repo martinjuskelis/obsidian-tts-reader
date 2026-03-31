@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Plugin, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	SPEED_MIN,
@@ -29,6 +29,13 @@ export default class TTSReaderPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+
+		// Set sensible mobile default on first load
+		if (Platform.isMobile && this.settings.toolbarPadding === 0) {
+			this.settings.toolbarPadding = 80;
+			await this.saveSettings();
+		}
+
 		this.addSettingTab(new TTSReaderSettingTab(this.app, this));
 		this.registerCommands();
 
@@ -229,7 +236,11 @@ export default class TTSReaderPlugin extends Plugin {
 
 		this.playbackLeaf = view.leaf;
 		this.playbackFilePath = view.file?.path ?? null;
-		this.toolbar = new Toolbar(view.contentEl, this.settings.speed);
+		this.toolbar = new Toolbar(
+			view.contentEl,
+			this.settings.speed,
+			this.settings.toolbarPadding,
+		);
 		this.wireToolbar();
 		this.wireController();
 		if (previewEl) this.setupClickToJump(previewEl);
@@ -352,6 +363,7 @@ export default class TTSReaderPlugin extends Plugin {
 
 		this.controller.onSentenceChange = (index, total) => {
 			toolbar.updateProgress(index, total);
+			this.highlighter?.setProgress(index, total);
 		};
 
 		this.controller.onComplete = () => {

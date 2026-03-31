@@ -197,6 +197,22 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					}),
 			);
 
+		new Setting(containerEl)
+			.setName("Toolbar bottom padding")
+			.setDesc(
+				"Extra space below the toolbar (pixels). Increase on mobile if Obsidian's navigation bar covers the controls. Default: 0 on desktop, 80 on mobile.",
+			)
+			.addSlider((s) =>
+				s
+					.setLimits(0, 200, 10)
+					.setValue(this.plugin.settings.toolbarPadding)
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						this.plugin.settings.toolbarPadding = v;
+						await this.plugin.saveSettings();
+					}),
+			);
+
 		// --- Advanced ---
 		new Setting(containerEl).setName("Advanced").setHeading();
 

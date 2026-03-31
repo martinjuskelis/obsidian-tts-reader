@@ -39,12 +39,15 @@ export class Toolbar {
 	private _state: PlaybackState = "idle";
 	private _autoScroll = true;
 
-	constructor(parentEl: HTMLElement, initialSpeed: number) {
+	constructor(parentEl: HTMLElement, initialSpeed: number, bottomPadding = 0) {
 		this.containerEl = parentEl;
 		this.currentSpeed = initialSpeed;
 
 		this.el = document.createElement("div");
 		this.el.className = "tts-reader-toolbar";
+		if (bottomPadding > 0) {
+			this.el.style.paddingBottom = `${bottomPadding}px`;
+		}
 
 		const controls = this.el.createDiv({ cls: "tts-reader-controls" });
 

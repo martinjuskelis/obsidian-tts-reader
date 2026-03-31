@@ -1,15 +1,10 @@
 import type { SentenceInfo } from "./types";
 
-/**
- * Elements to skip when searching for text in the DOM.
- * These contain content that was stripped during markdown extraction.
- */
 const SKIP_SELECTOR =
 	"pre, code, .frontmatter-container, .metadata-container, .frontmatter, style, script, .callout-icon";
 
 interface TextRun {
 	node: Text;
-	/** Offset of this node's start within the full concatenated buffer */
 	bufferStart: number;
 	length: number;
 }
@@ -17,11 +12,9 @@ interface TextRun {
 /**
  * Highlights the current sentence in the rendered Reading View.
  *
- * Since Obsidian lazy-renders Reading View sections, we can't store
- * pre-built Range objects. Instead we search the live DOM for the
- * sentence text each time highlight() is called.
- *
- * Primary: CSS Custom Highlight API.  Fallback: <mark> elements.
+ * Searches the live DOM each time (lazy-rendered sections may come and go).
+ * Tracks sentence progress so scrollToCurrent() can estimate position
+ * even when the target section is de-rendered by Obsidian.
  */
 export class Highlighter {
 	private container: HTMLElement | null = null;
@@ -29,6 +22,9 @@ export class Highlighter {
 	private marks: HTMLElement[] = [];
 	private lastSearchOffset = 0;
 	private lastRanges: Range[] = [];
+	private lastSentenceText = "";
+	/** 0–1 ratio of current sentence position through the document */
+	private progress = 0;
 
 	constructor() {
 		this.useCustomHighlight =
@@ -37,43 +33,47 @@ export class Highlighter {
 			typeof Highlight !== "undefined";
 	}
 
-	/** Bind to the reading-view container so highlight() knows where to search. */
 	setContainer(el: HTMLElement): void {
 		this.container = el;
 		this.lastSearchOffset = 0;
 	}
 
-	/** Find the sentence text in the DOM, highlight it, and optionally scroll. */
+	/** Update progress ratio (called by playback controller on sentence change). */
+	setProgress(current: number, total: number): void {
+		this.progress = total > 0 ? current / total : 0;
+	}
+
 	highlight(sentence: SentenceInfo, autoScroll: boolean): void {
 		this.clear();
 		if (!this.container) return;
 
+		this.lastSentenceText = sentence.text;
 		const ranges = this.findTextInDOM(sentence.text);
-		if (ranges.length === 0) return;
 		this.lastRanges = ranges;
 
-		if (this.useCustomHighlight) {
-			const hl = new Highlight(...ranges);
-			CSS.highlights.set("tts-reader-current", hl);
-		} else {
-			for (const range of ranges) {
-				try {
-					const mark = document.createElement("mark");
-					mark.className = "tts-reader-highlight";
-					range.surroundContents(mark);
-					this.marks.push(mark);
-				} catch {
-					// surroundContents fails on cross-element ranges; skip
+		if (ranges.length > 0) {
+			if (this.useCustomHighlight) {
+				const hl = new Highlight(...ranges);
+				CSS.highlights.set("tts-reader-current", hl);
+			} else {
+				for (const range of ranges) {
+					try {
+						const mark = document.createElement("mark");
+						mark.className = "tts-reader-highlight";
+						range.surroundContents(mark);
+						this.marks.push(mark);
+					} catch {
+						// cross-element range
+					}
 				}
 			}
 		}
 
-		if (autoScroll) {
+		if (autoScroll && ranges.length > 0) {
 			this.scrollToRange(ranges[0]);
 		}
 	}
 
-	/** Remove all highlights. */
 	clear(): void {
 		if (this.useCustomHighlight) {
 			try {
@@ -94,25 +94,56 @@ export class Highlighter {
 		}
 	}
 
-	/** Scroll to the currently highlighted sentence (manual jump). */
+	/**
+	 * Scroll to the currently playing sentence. Handles the case where
+	 * Obsidian has de-rendered the section by estimating the scroll
+	 * position first (forcing a re-render), then finding the exact text.
+	 */
 	scrollToCurrent(): void {
-		if (this.lastRanges.length > 0) {
-			this.scrollToRange(this.lastRanges[0]);
+		// 1. Try stored ranges (fast path — section still rendered)
+		if (this.tryScrollToRanges()) return;
+
+		// 2. Re-search DOM (maybe section was re-rendered since last highlight)
+		if (this.lastSentenceText) {
+			const ranges = this.findTextInDOM(this.lastSentenceText);
+			if (ranges.length > 0) {
+				this.lastRanges = ranges;
+				this.scrollToRange(ranges[0]);
+				return;
+			}
 		}
+
+		// 3. Section is de-rendered. Jump to approximate position to force
+		//    Obsidian to render it, then find the exact text after a tick.
+		const scrollEl = this.getScrollContainer();
+		if (!scrollEl) return;
+
+		const target = scrollEl.scrollHeight * this.progress;
+		scrollEl.scrollTo({ top: target, behavior: "instant" });
+
+		// Wait for Obsidian to render the section, then find exact text
+		setTimeout(() => {
+			if (this.lastSentenceText) {
+				const ranges = this.findTextInDOM(this.lastSentenceText);
+				if (ranges.length > 0) {
+					this.lastRanges = ranges;
+					// Re-highlight
+					if (this.useCustomHighlight) {
+						const hl = new Highlight(...ranges);
+						CSS.highlights.set("tts-reader-current", hl);
+					}
+					this.scrollToRange(ranges[0]);
+				}
+			}
+		}, 150);
 	}
 
-	/** Reset the search position (e.g., when jumping backward). */
 	resetSearchPosition(): void {
 		this.lastSearchOffset = 0;
 	}
 
 	// --- DOM search ---
 
-	/**
-	 * Build a text buffer from all visible text nodes in the container
-	 * (skipping code blocks, frontmatter, etc.), then search for the
-	 * sentence text and create Range objects covering the match.
-	 */
 	private findTextInDOM(text: string): Range[] {
 		if (!this.container) return [];
 
@@ -121,17 +152,13 @@ export class Highlighter {
 
 		const buffer = runs.map((r) => r.node.textContent ?? "").join("");
 
-		// Search forward from last position first (normal sequential reading)
 		let idx = buffer.indexOf(text, this.lastSearchOffset);
 		if (idx === -1) {
-			// Not found ahead — search from beginning (jump backward / wrap)
 			idx = buffer.indexOf(text);
 		}
 		if (idx === -1) return [];
 
 		this.lastSearchOffset = idx + text.length;
-
-		// Map buffer offset → DOM Ranges
 		return this.createRanges(idx, text.length, runs);
 	}
 
@@ -185,13 +212,26 @@ export class Highlighter {
 				range.setEnd(run.node, segEnd);
 				ranges.push(range);
 			} catch {
-				// node detached or offsets invalid
+				// node detached
 			}
 		}
 		return ranges;
 	}
 
-	// --- Scrolling ---
+	// --- Scrolling helpers ---
+
+	private tryScrollToRanges(): boolean {
+		if (this.lastRanges.length === 0) return false;
+		try {
+			if (!this.lastRanges[0].startContainer.isConnected) return false;
+			const rect = this.lastRanges[0].getBoundingClientRect();
+			if (rect.height === 0) return false;
+			this.scrollToRange(this.lastRanges[0]);
+			return true;
+		} catch {
+			return false;
+		}
+	}
 
 	private scrollToRange(range: Range): void {
 		try {
@@ -211,17 +251,26 @@ export class Highlighter {
 					rect.top -
 					containerRect.top -
 					containerRect.height / 3;
-				scrollContainer.scrollTo({ top: scrollTop, behavior: "smooth" });
+				scrollContainer.scrollTo({
+					top: scrollTop,
+					behavior: "smooth",
+				});
 			} else {
-				// Fallback: scroll the range's parent element into view
 				const el =
 					range.startContainer.parentElement ??
 					(range.startContainer as HTMLElement);
 				el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
 			}
 		} catch {
-			// range became invalid
+			// range invalid
 		}
+	}
+
+	private getScrollContainer(): HTMLElement | null {
+		if (!this.container) return null;
+		return (
+			this.findScrollContainer(this.container) ?? this.container
+		);
 	}
 
 	private findScrollContainer(el: HTMLElement): HTMLElement | null {

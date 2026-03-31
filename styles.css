@@ -123,8 +123,6 @@ mark.tts-reader-highlight {
 
 .is-mobile .tts-reader-toolbar {
 	padding: 4px 6px;
-	/* Extra padding below so the toolbar bg covers Obsidian's nav bar area */
-	padding-bottom: calc(80px + env(safe-area-inset-bottom));
 }
 
 .is-mobile .tts-reader-btn {

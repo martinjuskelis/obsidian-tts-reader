@@ -52,8 +52,8 @@ export function extractSentences(
 	// Markdown links  [text](url) → text
 	text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
 
-	// Heading markers
-	text = text.replace(/^#{1,6}\s+/gm, "");
+	// Heading markers → own paragraph (ensures heading doesn't merge with next line)
+	text = text.replace(/^#{1,6}\s+(.+)$/gm, "\n\n$1\n\n");
 
 	// Bold / italic / strikethrough / highlight
 	text = text.replace(/\*{1,3}(.+?)\*{1,3}/g, "$1");

@@ -8,6 +8,7 @@ export interface TTSReaderSettings {
 	skipFrontmatter: boolean;
 	autoScroll: boolean;
 	deepinfraVoice: string;
+	toolbarPadding: number;
 	debug: boolean;
 }
 
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	skipCodeBlocks: true,
 	skipFrontmatter: true,
 	autoScroll: true,
+	toolbarPadding: 0,
 	debug: false,
 };
 
