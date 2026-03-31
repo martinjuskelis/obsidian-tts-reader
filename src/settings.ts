@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Platform, PluginSettingTab, Setting } from "obsidian";
 import type TTSReaderPlugin from "./main";
 import { PIPER_VOICES } from "./piper";
 import {
@@ -78,6 +78,15 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 		// --- Piper settings ---
 		if (this.plugin.settings.backend === "piper") {
+			if (Platform.isMobile) {
+				new Setting(containerEl)
+					.setName("Piper may not work on mobile")
+					.setDesc(
+						"Android's WebView blocks the WASM loading that Piper needs. " +
+							"Use DeepInfra on mobile instead. Piper works well on desktop.",
+					);
+			}
+
 			new Setting(containerEl)
 				.setName("Voice")
 				.setDesc(

@@ -102,7 +102,13 @@ export class PiperEngine implements TTSEngine {
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			console.error("Piper TTS error:", msg);
-			if (this.debug) {
+			if (msg.includes("dynamically imported module") || msg.includes("no available backend")) {
+				new Notice(
+					"TTS Reader: Piper can't load on this platform (WASM blocked). " +
+						"Switch to DeepInfra in Settings > TTS Reader.",
+					10000,
+				);
+			} else if (this.debug) {
 				new Notice(`TTS Reader: Piper error: ${msg}`);
 			}
 			throw e;

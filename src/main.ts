@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Plugin, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	SPEED_MIN,
@@ -31,13 +31,25 @@ export default class TTSReaderPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 
-		// Auto-switch to Piper on platforms where Web Speech is unavailable
+		// Auto-switch backend on platforms where Web Speech is unavailable.
+		// Piper (WASM) works on desktop but Android WebView blocks the
+		// dynamic import() that ONNX Runtime needs, so use DeepInfra there.
 		if (
 			this.settings.backend === "webspeech" &&
 			typeof speechSynthesis === "undefined"
 		) {
-			this.settings.backend = "piper";
+			this.settings.backend = Platform.isMobile
+				? "deepinfra"
+				: "piper";
 			await this.saveSettings();
+			if (Platform.isMobile) {
+				new Notice(
+					"TTS Reader: Web Speech is not available on Android. " +
+						"Switched to DeepInfra. Set your API key in " +
+						"Settings > TTS Reader. (Free tier available at deepinfra.com)",
+					15000,
+				);
+			}
 		}
 
 		this.addSettingTab(new TTSReaderSettingTab(this.app, this));
