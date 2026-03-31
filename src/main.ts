@@ -58,14 +58,14 @@ export default class TTSReaderPlugin extends Plugin {
 			}
 		});
 
-		// Stop playback only when switching to a genuinely different note/leaf.
-		// Clicking the sidebar, ribbon, or outside the text does NOT stop playback.
+		// Only stop playback when the user opens a different markdown document.
+		// Clicking the file explorer, sidebar, ribbon, or settings does NOT stop.
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => {
+				if (!this.playbackLeaf || !leaf) return;
 				if (
-					this.playbackLeaf &&
-					leaf &&
-					leaf !== this.playbackLeaf
+					leaf !== this.playbackLeaf &&
+					leaf.view instanceof MarkdownView
 				) {
 					this.stopPlayback();
 				}
