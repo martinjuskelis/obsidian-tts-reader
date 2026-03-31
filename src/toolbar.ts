@@ -17,6 +17,8 @@ export class Toolbar {
 	private nextBtn: HTMLButtonElement;
 	private slowerBtn: HTMLButtonElement;
 	private fasterBtn: HTMLButtonElement;
+	private autoScrollBtn: HTMLButtonElement;
+	private locateBtn: HTMLButtonElement;
 	private closeBtn: HTMLButtonElement;
 
 	// Displays
@@ -30,9 +32,12 @@ export class Toolbar {
 	onNext?: () => void;
 	onClose?: () => void;
 	onSpeedChange?: (speed: number) => void;
+	onToggleAutoScroll?: () => void;
+	onLocate?: () => void;
 
 	private currentSpeed: number;
 	private _state: PlaybackState = "idle";
+	private _autoScroll = true;
 
 	constructor(parentEl: HTMLElement, initialSpeed: number) {
 		this.containerEl = parentEl;
@@ -80,6 +85,27 @@ export class Toolbar {
 
 		controls.createDiv({ cls: "tts-reader-separator" });
 
+		// --- Scroll controls ---
+		this.autoScrollBtn = this.createButton(
+			controls,
+			"scroll-text",
+			"Toggle auto-scroll",
+			() => {
+				this._autoScroll = !this._autoScroll;
+				this.updateAutoScrollIcon();
+				this.onToggleAutoScroll?.();
+			},
+		);
+
+		this.locateBtn = this.createButton(
+			controls,
+			"crosshair",
+			"Scroll to current sentence",
+			() => this.onLocate?.(),
+		);
+
+		controls.createDiv({ cls: "tts-reader-separator" });
+
 		// --- Close button ---
 		this.closeBtn = this.createButton(controls, "x", "Close", () =>
 			this.onClose?.(),
@@ -110,6 +136,11 @@ export class Toolbar {
 		this.speedDisplay.textContent = this.formatSpeed(speed);
 		this.slowerBtn.disabled = speed <= SPEED_MIN;
 		this.fasterBtn.disabled = speed >= SPEED_MAX;
+	}
+
+	updateAutoScroll(enabled: boolean): void {
+		this._autoScroll = enabled;
+		this.updateAutoScrollIcon();
 	}
 
 	destroy(): void {
@@ -156,6 +187,20 @@ export class Toolbar {
 			this.fasterBtn.disabled = newSpeed >= SPEED_MAX;
 			this.onSpeedChange?.(newSpeed);
 		}
+	}
+
+	private updateAutoScrollIcon(): void {
+		setIcon(
+			this.autoScrollBtn,
+			this._autoScroll ? "scroll-text" : "scroll",
+		);
+		this.autoScrollBtn.title = this._autoScroll
+			? "Auto-scroll: ON"
+			: "Auto-scroll: OFF";
+		this.autoScrollBtn.classList.toggle(
+			"tts-reader-btn-active",
+			this._autoScroll,
+		);
 	}
 
 	private formatSpeed(speed: number): string {

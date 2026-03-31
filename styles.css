@@ -64,6 +64,10 @@ mark.tts-reader-highlight {
 	stroke-width: 2px;
 }
 
+.tts-reader-btn-active {
+	color: var(--interactive-accent);
+}
+
 .tts-reader-btn:hover {
 	background-color: var(--background-modifier-hover);
 }

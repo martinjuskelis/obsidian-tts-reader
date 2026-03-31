@@ -326,6 +326,15 @@ export default class TTSReaderPlugin extends Plugin {
 			this.saveSettings();
 			controller.setSpeed(speed);
 		};
+		toolbar.onToggleAutoScroll = () => {
+			this.settings.autoScroll = !this.settings.autoScroll;
+			this.saveSettings();
+			controller.setAutoScroll(this.settings.autoScroll);
+		};
+		toolbar.onLocate = () => {
+			this.highlighter?.scrollToCurrent();
+		};
+		toolbar.updateAutoScroll(this.settings.autoScroll);
 	}
 
 	private wireController(): void {

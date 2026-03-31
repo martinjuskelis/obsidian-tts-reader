@@ -28,6 +28,7 @@ export class Highlighter {
 	private useCustomHighlight: boolean;
 	private marks: HTMLElement[] = [];
 	private lastSearchOffset = 0;
+	private lastRanges: Range[] = [];
 
 	constructor() {
 		this.useCustomHighlight =
@@ -49,6 +50,7 @@ export class Highlighter {
 
 		const ranges = this.findTextInDOM(sentence.text);
 		if (ranges.length === 0) return;
+		this.lastRanges = ranges;
 
 		if (this.useCustomHighlight) {
 			const hl = new Highlight(...ranges);
@@ -89,6 +91,13 @@ export class Highlighter {
 				parent.normalize();
 			}
 			this.marks = [];
+		}
+	}
+
+	/** Scroll to the currently highlighted sentence (manual jump). */
+	scrollToCurrent(): void {
+		if (this.lastRanges.length > 0) {
+			this.scrollToRange(this.lastRanges[0]);
 		}
 	}
 
