@@ -30,6 +30,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					.addOption("deepinfra", "DeepInfra (cloud, better quality)")
 					.setValue(this.plugin.settings.backend)
 					.onChange(async (v) => {
+						this.plugin.stopPlaybackPublic();
 						this.plugin.settings.backend = v as
 							| "webspeech"
 							| "deepinfra";
@@ -66,6 +67,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					}
 					d.setValue(this.plugin.settings.webSpeechVoice);
 					d.onChange(async (val) => {
+						this.plugin.stopPlaybackPublic();
 						this.plugin.settings.webSpeechVoice = val;
 						await this.plugin.saveSettings();
 					});
@@ -83,6 +85,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						.setValue(this.plugin.settings.deepinfraApiKey)
 						.then((t) => (t.inputEl.type = "password"))
 						.onChange(async (v) => {
+							this.plugin.stopPlaybackPublic();
 							this.plugin.settings.deepinfraApiKey = v;
 							await this.plugin.saveSettings();
 						}),
@@ -103,6 +106,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						: "custom";
 					d.setValue(current);
 					d.onChange(async (v) => {
+						this.plugin.stopPlaybackPublic();
 						if (v !== "custom") {
 							this.plugin.settings.deepinfraModel = v;
 							await this.plugin.saveSettings();
@@ -125,6 +129,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 							.setPlaceholder("owner/model-name")
 							.setValue(this.plugin.settings.deepinfraModel)
 							.onChange(async (v) => {
+								this.plugin.stopPlaybackPublic();
 								this.plugin.settings.deepinfraModel = v;
 								await this.plugin.saveSettings();
 							}),
@@ -141,6 +146,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						.setPlaceholder("af_heart")
 						.setValue(this.plugin.settings.deepinfraVoice)
 						.onChange(async (v) => {
+							this.plugin.stopPlaybackPublic();
 							this.plugin.settings.deepinfraVoice = v;
 							await this.plugin.saveSettings();
 						}),

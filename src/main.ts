@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Plugin } from "obsidian";
+import { MarkdownView, Notice, Plugin, type WorkspaceLeaf } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	SPEED_MIN,
@@ -24,6 +24,7 @@ export default class TTSReaderPlugin extends Plugin {
 	private highlighter: Highlighter | null = null;
 	private clickHandler: ((e: MouseEvent) => void) | null = null;
 	private clickTarget: HTMLElement | null = null;
+	private playbackLeaf: WorkspaceLeaf | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -45,10 +46,17 @@ export default class TTSReaderPlugin extends Plugin {
 			}
 		});
 
-		// Stop playback when the user navigates away or switches views
+		// Stop playback only when switching to a genuinely different note/leaf.
+		// Clicking the sidebar, ribbon, or outside the text does NOT stop playback.
 		this.registerEvent(
-			this.app.workspace.on("active-leaf-change", () => {
-				this.stopPlayback();
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				if (
+					this.playbackLeaf &&
+					leaf &&
+					leaf !== this.playbackLeaf
+				) {
+					this.stopPlayback();
+				}
 			}),
 		);
 	}
@@ -66,10 +74,12 @@ export default class TTSReaderPlugin extends Plugin {
 	}
 
 	async saveSettings(): Promise<void> {
-		// Any settings change stops active playback to avoid stale state
-		// (e.g., switching voice while reading would cause overlapping audio)
-		this.stopPlayback();
 		await this.saveData(this.settings);
+	}
+
+	/** Public so the settings tab can stop playback for disruptive changes. */
+	stopPlaybackPublic(): void {
+		this.stopPlayback();
 	}
 
 	// --- Commands ---
@@ -214,6 +224,7 @@ export default class TTSReaderPlugin extends Plugin {
 			this.settings.autoScroll,
 		);
 
+		this.playbackLeaf = view.leaf;
 		this.toolbar = new Toolbar(view.contentEl, this.settings.speed);
 		this.wireToolbar();
 		this.wireController();
@@ -224,6 +235,7 @@ export default class TTSReaderPlugin extends Plugin {
 	}
 
 	private stopPlayback(): void {
+		this.playbackLeaf = null;
 		this.teardownClickToJump();
 		if (this.controller) {
 			this.controller.stop();
