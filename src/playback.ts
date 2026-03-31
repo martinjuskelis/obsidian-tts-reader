@@ -210,7 +210,9 @@ export class PlaybackController {
 		if (typeof engine.preBuffer !== "function") return;
 
 		const upcoming: string[] = [];
-		const lookAhead = this._bufferAhead + 1;
+		// Scale buffer with speed — at 3x you need ~3x more buffered
+		const speedFactor = Math.max(1, Math.ceil(this._speed));
+		const lookAhead = this._bufferAhead * speedFactor + 1;
 		for (
 			let i = this.currentIndex + 1;
 			i < Math.min(this.currentIndex + lookAhead, this._sentences.length);

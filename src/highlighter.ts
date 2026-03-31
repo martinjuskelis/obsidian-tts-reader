@@ -144,72 +144,108 @@ export class Highlighter {
 
 	// --- DOM search ---
 
+	/**
+	 * Find `text` in the rendered DOM by walking text nodes directly.
+	 *
+	 * Normalizes whitespace on both sides (extracted text has spaces
+	 * where the DOM has newlines/trailing spaces from poetry `  \n`).
+	 * Creates one Range per text node that overlaps the match.
+	 */
 	private findTextInDOM(text: string): Range[] {
 		if (!this.container) return [];
 
 		const runs = this.collectTextRuns();
 		if (runs.length === 0) return [];
 
-		// Build raw buffer. Insert a space between adjacent text nodes
-		// that aren't separated by whitespace (handles <br> elements
-		// which produce separate text nodes with no whitespace gap).
-		// Rebuild run offsets to account for inserted spaces.
-		let rawBuffer = "";
-		for (const run of runs) {
-			const t = run.node.textContent ?? "";
+		// Build a flat array of {runIndex, charIndex} for each
+		// normalized character, so we can map match positions back
+		// to exact DOM text node offsets.
+		const map: { ri: number; ci: number }[] = [];
+		let prevWasSpace = true; // start true to skip leading whitespace
+
+		for (let ri = 0; ri < runs.length; ri++) {
+			const nodeText = runs[ri].node.textContent ?? "";
+
+			// Virtual space between adjacent non-whitespace nodes
+			// (handles <br> producing separate nodes with no gap)
 			if (
-				rawBuffer.length > 0 &&
-				t.length > 0 &&
-				!/\s$/.test(rawBuffer) &&
-				!/^\s/.test(t)
+				!prevWasSpace &&
+				nodeText.length > 0 &&
+				!/^\s/.test(nodeText)
 			) {
-				rawBuffer += " ";
+				map.push({ ri: -1, ci: -1 }); // virtual space
+				prevWasSpace = true;
 			}
-			run.bufferStart = rawBuffer.length;
-			rawBuffer += t;
-		}
 
-		// Normalize: collapse all whitespace runs to single spaces so
-		// poetry and other linebreak-heavy content matches the extracted text.
-		const buffer = rawBuffer.replace(/\s+/g, " ");
-
-		let idx = buffer.indexOf(text, this.lastSearchOffset);
-		if (idx === -1) {
-			idx = buffer.indexOf(text);
-		}
-		if (idx === -1) return [];
-
-		// Map normalized offset back to raw offset for Range creation.
-		// Walk the raw buffer counting characters, skipping collapsed whitespace.
-		const rawIdx = this.normalizedToRaw(rawBuffer, idx);
-		const rawEnd = this.normalizedToRaw(rawBuffer, idx + text.length);
-
-		this.lastSearchOffset = idx + text.length;
-		return this.createRanges(rawIdx, rawEnd - rawIdx, runs);
-	}
-
-	/**
-	 * Convert an offset in the whitespace-normalized buffer back to
-	 * the corresponding offset in the raw (un-normalized) buffer.
-	 */
-	private normalizedToRaw(raw: string, normOffset: number): number {
-		let ni = 0;
-		let ri = 0;
-		let inWhitespace = false;
-		while (ri < raw.length && ni < normOffset) {
-			if (/\s/.test(raw[ri])) {
-				if (!inWhitespace) {
-					ni++; // one space in normalized
-					inWhitespace = true;
+			for (let ci = 0; ci < nodeText.length; ci++) {
+				if (/\s/.test(nodeText[ci])) {
+					if (!prevWasSpace) {
+						map.push({ ri, ci });
+						prevWasSpace = true;
+					}
+					// extra whitespace chars: skip in normalized view
+				} else {
+					map.push({ ri, ci });
+					prevWasSpace = false;
 				}
-				ri++;
-			} else {
-				ni++;
-				ri++;
-				inWhitespace = false;
 			}
 		}
-		return ri;
+
+		// Build normalized string from the map
+		const buffer = map
+			.map((m) => {
+				if (m.ri === -1) return " ";
+				return (runs[m.ri].node.textContent ?? "")[m.ci];
+			})
+			.join("");
+
+		// Search
+		let idx = buffer.indexOf(text, this.lastSearchOffset);
+		if (idx === -1) idx = buffer.indexOf(text);
+		if (idx === -1) return [];
+		this.lastSearchOffset = idx + text.length;
+
+		// Create Ranges — one per text node that overlaps the match
+		const ranges: Range[] = [];
+		let curRun = -1;
+		let segStart = -1;
+		let segEnd = -1;
+
+		for (let i = idx; i < idx + text.length; i++) {
+			const m = map[i];
+			if (m.ri === -1) continue; // virtual space
+
+			if (m.ri !== curRun) {
+				// Flush previous run's range
+				if (curRun >= 0 && segStart >= 0) {
+					try {
+						const r = document.createRange();
+						r.setStart(runs[curRun].node, segStart);
+						r.setEnd(runs[curRun].node, segEnd);
+						ranges.push(r);
+					} catch {
+						/* detached */
+					}
+				}
+				curRun = m.ri;
+				segStart = m.ci;
+			}
+			segEnd = m.ci + 1;
+		}
+
+		// Flush last range
+		if (curRun >= 0 && segStart >= 0) {
+			try {
+				const r = document.createRange();
+				r.setStart(runs[curRun].node, segStart);
+				r.setEnd(runs[curRun].node, segEnd);
+				ranges.push(r);
+			} catch {
+				/* detached */
+			}
+		}
+
+		return ranges;
 	}
 
 	private collectTextRuns(): TextRun[] {
