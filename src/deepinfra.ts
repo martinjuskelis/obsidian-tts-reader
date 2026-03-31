@@ -270,6 +270,8 @@ export class DeepInfraEngine implements TTSEngine {
 			const finish = () => {
 				if (settled) return;
 				settled = true;
+				audio.pause();
+				audio.src = "";
 				URL.revokeObjectURL(url);
 				this._speaking = false;
 				this._paused = false;

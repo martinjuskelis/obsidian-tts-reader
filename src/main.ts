@@ -275,7 +275,8 @@ export default class TTSReaderPlugin extends Plugin {
 
 		if (typeof speechSynthesis === "undefined") {
 			new Notice(
-				"TTS Reader: Web Speech API is not available on this platform.",
+				"TTS Reader: Web Speech API is not available on this platform. On Android, use the DeepInfra backend instead (Settings > TTS Reader).",
+				10000,
 			);
 			return null;
 		}
