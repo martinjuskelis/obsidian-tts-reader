@@ -19,6 +19,7 @@ export class DeepInfraEngine implements TTSEngine {
 	private ac: AbortController | null = null;
 	debug = false;
 	voice = "af_heart";
+	voiceParam = "preset_voice";
 
 	/** Pre-fetched audio blobs keyed by sentence text */
 	private preBufferCache = new Map<string, Blob>();
@@ -123,13 +124,9 @@ export class DeepInfraEngine implements TTSEngine {
 				text,
 			};
 
-			// Kokoro expects preset_voice
-			if (this.model.includes("Kokoro") && this.voice) {
-				payload.preset_voice = this.voice;
-			}
-			// Other models may use a voice field
-			if (this.voice && !payload.preset_voice) {
-				payload.voice = this.voice;
+			// Use the model-specific voice parameter name
+			if (this.voice && this.voiceParam) {
+				payload[this.voiceParam] = this.voice;
 			}
 
 			const response = await requestUrl({

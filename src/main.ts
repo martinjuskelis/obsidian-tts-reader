@@ -1,6 +1,7 @@
 import { MarkdownView, Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
+	DEEPINFRA_MODELS,
 	SPEED_MIN,
 	SPEED_MAX,
 	SPEED_STEP,
@@ -286,6 +287,11 @@ export default class TTSReaderPlugin extends Plugin {
 			}
 			this.deepInfraEngine.debug = this.settings.debug;
 			this.deepInfraEngine.voice = this.settings.deepinfraVoice;
+			const modelDef = DEEPINFRA_MODELS.find(
+				(m) => m.id === this.settings.deepinfraModel,
+			);
+			this.deepInfraEngine.voiceParam =
+				modelDef?.voiceParam ?? "preset_voice";
 			return this.deepInfraEngine;
 		}
 
@@ -364,6 +370,11 @@ export default class TTSReaderPlugin extends Plugin {
 		this.controller.onSentenceChange = (index, total) => {
 			toolbar.updateProgress(index, total);
 			this.highlighter?.setProgress(index, total);
+		};
+
+		this.controller.onError = (msg) => {
+			new Notice(`TTS Reader: ${msg}`, 10000);
+			this.stopPlayback();
 		};
 
 		this.controller.onComplete = () => {

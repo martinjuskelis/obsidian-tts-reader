@@ -12,10 +12,13 @@ export class PlaybackController {
 	private generation = 0;
 	private resumeResolve: (() => void) | null = null;
 	private _speed = 1.0;
+	private consecutiveErrors = 0;
+	private static readonly MAX_CONSECUTIVE_ERRORS = 3;
 
 	onStateChange?: (state: PlaybackState) => void;
 	onSentenceChange?: (index: number, total: number) => void;
 	onComplete?: () => void;
+	onError?: (message: string) => void;
 
 	constructor(
 		engine: TTSEngine,
@@ -156,10 +159,26 @@ export class PlaybackController {
 			this.preBufferNext();
 
 			try {
-				// Read speed dynamically so mid-playback changes apply
 				await this.engine.speak(sentence.text, this._speed);
+				this.consecutiveErrors = 0; // success resets counter
 			} catch (err) {
-				console.error("TTS speak error:", err);
+				this.consecutiveErrors++;
+				console.error(
+					`TTS speak error (${this.consecutiveErrors}/${PlaybackController.MAX_CONSECUTIVE_ERRORS}):`,
+					err,
+				);
+				if (
+					this.consecutiveErrors >=
+					PlaybackController.MAX_CONSECUTIVE_ERRORS
+				) {
+					this.onError?.(
+						`Stopped after ${this.consecutiveErrors} consecutive errors. Check your TTS settings.`,
+					);
+					this.highlighter.clear();
+					this.setState("idle");
+					this.onComplete?.();
+					return;
+				}
 			}
 
 			if (gen !== this.generation) return;

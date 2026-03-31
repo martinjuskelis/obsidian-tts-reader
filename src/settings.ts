@@ -136,21 +136,79 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					);
 			}
 
-			new Setting(containerEl)
-				.setName("Voice")
-				.setDesc(
-					"Voice preset name. Kokoro voices: af_heart, af_bella, af_nicole, af_sarah, af_sky, am_adam, am_michael, bf_emma, bf_isabella, bm_george, bm_lewis",
-				)
-				.addText((t) =>
-					t
-						.setPlaceholder("af_heart")
-						.setValue(this.plugin.settings.deepinfraVoice)
-						.onChange(async (v) => {
+			// Voice dropdown — shows voices for the selected model
+			const modelDef = DEEPINFRA_MODELS.find(
+				(m) => m.id === this.plugin.settings.deepinfraModel,
+			);
+			if (modelDef && modelDef.voices.length > 0) {
+				const isVoiceDesign =
+					modelDef.voiceParam === "voice_description";
+				const voiceSetting = new Setting(containerEl)
+					.setName("Voice")
+					.setDesc(
+						isVoiceDesign
+							? "Describe the voice you want in natural language."
+							: `Voice for ${modelDef.name.split(" \u2014")[0]}.`,
+					);
+
+				if (isVoiceDesign) {
+					voiceSetting.addText((t) =>
+						t
+							.setPlaceholder(
+								"A calm, clear adult male voice...",
+							)
+							.setValue(this.plugin.settings.deepinfraVoice)
+							.onChange(async (v) => {
+								this.plugin.stopPlaybackPublic();
+								this.plugin.settings.deepinfraVoice = v;
+								await this.plugin.saveSettings();
+							}),
+					);
+				} else {
+					voiceSetting.addDropdown((d) => {
+						for (const v of modelDef.voices) {
+							d.addOption(v.id, v.name);
+						}
+						// If current voice isn't in this model's list, pick first
+						const validVoice = modelDef.voices.some(
+							(v) =>
+								v.id ===
+								this.plugin.settings.deepinfraVoice,
+						)
+							? this.plugin.settings.deepinfraVoice
+							: modelDef.voices[0].id;
+						if (
+							validVoice !==
+							this.plugin.settings.deepinfraVoice
+						) {
+							this.plugin.settings.deepinfraVoice =
+								validVoice;
+							this.plugin.saveSettings();
+						}
+						d.setValue(validVoice);
+						d.onChange(async (v) => {
 							this.plugin.stopPlaybackPublic();
 							this.plugin.settings.deepinfraVoice = v;
 							await this.plugin.saveSettings();
-						}),
-				);
+						});
+					});
+				}
+			} else if (!modelDef) {
+				// Custom model — free text voice field
+				new Setting(containerEl)
+					.setName("Voice")
+					.setDesc("Voice ID or name for your custom model.")
+					.addText((t) =>
+						t
+							.setPlaceholder("voice name")
+							.setValue(this.plugin.settings.deepinfraVoice)
+							.onChange(async (v) => {
+								this.plugin.stopPlaybackPublic();
+								this.plugin.settings.deepinfraVoice = v;
+								await this.plugin.saveSettings();
+							}),
+					);
+			}
 		}
 
 		// --- Text extraction ---
