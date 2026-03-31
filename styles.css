@@ -51,7 +51,7 @@ mark.tts-reader-highlight {
 	flex-wrap: nowrap;
 }
 
-/* Buttons — 44px minimum tap target for mobile accessibility */
+/* Buttons — 44px minimum tap target, Lucide SVG icons */
 .tts-reader-btn {
 	display: inline-flex;
 	align-items: center;
@@ -62,11 +62,16 @@ mark.tts-reader-highlight {
 	border: none;
 	border-radius: var(--radius-s);
 	background: transparent;
-	color: var(--text-normal);
-	font-size: 18px;
+	color: var(--icon-color);
 	cursor: pointer;
-	transition: background-color 0.15s ease;
+	transition: background-color 0.15s ease, color 0.15s ease;
 	-webkit-tap-highlight-color: transparent;
+}
+
+.tts-reader-btn .svg-icon {
+	width: 18px;
+	height: 18px;
+	stroke-width: 2px;
 }
 
 .tts-reader-btn:hover {
@@ -134,7 +139,11 @@ mark.tts-reader-highlight {
 .is-mobile .tts-reader-btn {
 	min-width: 48px;
 	min-height: 48px;
-	font-size: 20px;
+}
+
+.is-mobile .tts-reader-btn .svg-icon {
+	width: 20px;
+	height: 20px;
 }
 
 .is-mobile .tts-reader-controls {

@@ -1,11 +1,11 @@
+import { setIcon } from "obsidian";
 import { SPEED_MIN, SPEED_MAX, SPEED_STEP, type PlaybackState } from "./types";
 
 /**
  * Floating playback toolbar rendered at the bottom of the markdown view.
+ * Uses Obsidian's native Lucide icons for a consistent look.
  *
- * Layout: [Prev] [Play/Pause] [Next] [Stop]  |  [-] 1.0x [+]  |  3/20
- *
- * All buttons have 44px minimum tap targets for mobile usability.
+ * Layout: [Prev] [Play/Pause] [Next] [Stop]  |  [-] 1.0x [+]  |  3/20  |  [X]
  */
 export class Toolbar {
 	private containerEl: HTMLElement;
@@ -18,6 +18,7 @@ export class Toolbar {
 	private stopBtn: HTMLButtonElement;
 	private slowerBtn: HTMLButtonElement;
 	private fasterBtn: HTMLButtonElement;
+	private closeBtn: HTMLButtonElement;
 
 	// Displays
 	private speedDisplay: HTMLSpanElement;
@@ -29,6 +30,7 @@ export class Toolbar {
 	onStop?: () => void;
 	onPrev?: () => void;
 	onNext?: () => void;
+	onClose?: () => void;
 	onSpeedChange?: (speed: number) => void;
 
 	private currentSpeed: number;
@@ -38,35 +40,30 @@ export class Toolbar {
 		this.containerEl = parentEl;
 		this.currentSpeed = initialSpeed;
 
-		// Build the toolbar DOM
 		this.el = document.createElement("div");
 		this.el.className = "tts-reader-toolbar";
 
-		// --- Playback controls ---
 		const controls = this.el.createDiv({ cls: "tts-reader-controls" });
 
-		this.prevBtn = this.createButton(controls, "\u23EE", "Previous sentence", () =>
+		// --- Playback controls ---
+		this.prevBtn = this.createButton(controls, "skip-back", "Previous sentence", () =>
 			this.onPrev?.(),
 		);
-		this.playBtn = this.createButton(controls, "\u25B6", "Play", () =>
+		this.playBtn = this.createButton(controls, "play", "Play", () =>
 			this.handlePlayPause(),
 		);
-		this.nextBtn = this.createButton(controls, "\u23ED", "Next sentence", () =>
+		this.nextBtn = this.createButton(controls, "skip-forward", "Next sentence", () =>
 			this.onNext?.(),
 		);
-		this.stopBtn = this.createButton(controls, "\u23F9", "Stop", () =>
+		this.stopBtn = this.createButton(controls, "square", "Stop", () =>
 			this.onStop?.(),
 		);
 
-		// --- Separator ---
 		controls.createDiv({ cls: "tts-reader-separator" });
 
 		// --- Speed controls ---
-		this.slowerBtn = this.createButton(
-			controls,
-			"\u2212",
-			"Slower",
-			() => this.adjustSpeed(-SPEED_STEP),
+		this.slowerBtn = this.createButton(controls, "minus", "Slower", () =>
+			this.adjustSpeed(-SPEED_STEP),
 		);
 
 		this.speedDisplay = controls.createSpan({
@@ -74,14 +71,10 @@ export class Toolbar {
 			text: this.formatSpeed(initialSpeed),
 		});
 
-		this.fasterBtn = this.createButton(
-			controls,
-			"+",
-			"Faster",
-			() => this.adjustSpeed(SPEED_STEP),
+		this.fasterBtn = this.createButton(controls, "plus", "Faster", () =>
+			this.adjustSpeed(SPEED_STEP),
 		);
 
-		// --- Separator ---
 		controls.createDiv({ cls: "tts-reader-separator" });
 
 		// --- Progress ---
@@ -90,35 +83,33 @@ export class Toolbar {
 			text: "0 / 0",
 		});
 
-		// Attach to parent
+		controls.createDiv({ cls: "tts-reader-separator" });
+
+		// --- Close button ---
+		this.closeBtn = this.createButton(controls, "x", "Close", () =>
+			this.onClose?.(),
+		);
+
 		this.containerEl.appendChild(this.el);
 	}
 
-	/** Update the toolbar to reflect current playback state. */
 	updateState(state: PlaybackState): void {
 		this._state = state;
-		switch (state) {
-			case "playing":
-				this.playBtn.textContent = "\u23F8";
-				this.playBtn.ariaLabel = "Pause";
-				break;
-			case "paused":
-				this.playBtn.textContent = "\u25B6";
-				this.playBtn.ariaLabel = "Resume";
-				break;
-			case "idle":
-				this.playBtn.textContent = "\u25B6";
-				this.playBtn.ariaLabel = "Play";
-				break;
+		if (state === "playing") {
+			setIcon(this.playBtn, "pause");
+			this.playBtn.ariaLabel = "Pause";
+			this.playBtn.title = "Pause";
+		} else {
+			setIcon(this.playBtn, "play");
+			this.playBtn.ariaLabel = state === "paused" ? "Resume" : "Play";
+			this.playBtn.title = state === "paused" ? "Resume" : "Play";
 		}
 	}
 
-	/** Update the sentence progress display. */
 	updateProgress(current: number, total: number): void {
 		this.progressDisplay.textContent = `${current + 1}\u2009/\u2009${total}`;
 	}
 
-	/** Update the speed display (e.g., after external speed change). */
 	updateSpeed(speed: number): void {
 		this.currentSpeed = speed;
 		this.speedDisplay.textContent = this.formatSpeed(speed);
@@ -126,7 +117,6 @@ export class Toolbar {
 		this.fasterBtn.disabled = speed >= SPEED_MAX;
 	}
 
-	/** Remove the toolbar from the DOM. */
 	destroy(): void {
 		this.el.remove();
 	}
@@ -135,15 +125,15 @@ export class Toolbar {
 
 	private createButton(
 		parent: HTMLElement,
-		text: string,
+		iconId: string,
 		label: string,
 		onClick: () => void,
 	): HTMLButtonElement {
 		const btn = document.createElement("button");
 		btn.className = "tts-reader-btn";
-		btn.textContent = text;
 		btn.ariaLabel = label;
 		btn.title = label;
+		setIcon(btn, iconId);
 		btn.addEventListener("click", (e) => {
 			e.preventDefault();
 			e.stopPropagation();
@@ -162,8 +152,7 @@ export class Toolbar {
 	}
 
 	private adjustSpeed(delta: number): void {
-		let newSpeed =
-			Math.round((this.currentSpeed + delta) * 100) / 100;
+		let newSpeed = Math.round((this.currentSpeed + delta) * 100) / 100;
 		newSpeed = Math.max(SPEED_MIN, Math.min(SPEED_MAX, newSpeed));
 		if (newSpeed !== this.currentSpeed) {
 			this.currentSpeed = newSpeed;

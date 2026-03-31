@@ -30,7 +30,7 @@ export const DEEPINFRA_MODELS: { id: string; name: string }[] = [
 ];
 
 export const SPEED_MIN = 0.5;
-export const SPEED_MAX = 3.0;
+export const SPEED_MAX = 10.0;
 export const SPEED_STEP = 0.25;
 
 export interface SentenceInfo {

@@ -4,7 +4,9 @@ import {
 	SPEED_MIN,
 	SPEED_MAX,
 	SPEED_STEP,
+	type SentenceInfo,
 	type TTSReaderSettings,
+	type TTSEngine,
 } from "./types";
 import { TTSReaderSettingTab } from "./settings";
 import { extractSentences } from "./text-extractor";
@@ -13,7 +15,6 @@ import { DeepInfraEngine } from "./deepinfra";
 import { Highlighter } from "./highlighter";
 import { PlaybackController } from "./playback";
 import { Toolbar } from "./toolbar";
-import type { TTSEngine } from "./types";
 
 export default class TTSReaderPlugin extends Plugin {
 	settings: TTSReaderSettings = DEFAULT_SETTINGS;
@@ -22,6 +23,8 @@ export default class TTSReaderPlugin extends Plugin {
 	private webSpeechEngine: WebSpeechEngine | null = null;
 	private deepInfraEngine: DeepInfraEngine | null = null;
 	private highlighter: Highlighter | null = null;
+	private clickHandler: ((e: MouseEvent) => void) | null = null;
+	private clickTarget: HTMLElement | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -132,10 +135,8 @@ export default class TTSReaderPlugin extends Plugin {
 	// --- Playback lifecycle ---
 
 	private async startPlayback(view: MarkdownView): Promise<void> {
-		// Stop any existing playback
 		this.stopPlayback();
 
-		// Must be in Reading View
 		const mode = view.getMode();
 		if (mode !== "preview") {
 			new Notice(
@@ -145,7 +146,6 @@ export default class TTSReaderPlugin extends Plugin {
 			return;
 		}
 
-		// Get the rendered content container
 		const previewEl = view.contentEl.querySelector(
 			".markdown-preview-view",
 		) as HTMLElement | null;
@@ -154,7 +154,6 @@ export default class TTSReaderPlugin extends Plugin {
 			return;
 		}
 
-		// Extract sentences
 		const sentences = extractSentences(
 			previewEl,
 			this.settings.skipCodeBlocks,
@@ -165,11 +164,9 @@ export default class TTSReaderPlugin extends Plugin {
 			return;
 		}
 
-		// Create engine
 		const engine = this.getEngine();
 		if (!engine) return;
 
-		// Create highlighter and controller
 		this.highlighter = new Highlighter();
 		this.controller = new PlaybackController(
 			engine,
@@ -177,17 +174,17 @@ export default class TTSReaderPlugin extends Plugin {
 			this.settings.autoScroll,
 		);
 
-		// Create toolbar
 		this.toolbar = new Toolbar(view.contentEl, this.settings.speed);
 		this.wireToolbar();
 		this.wireController();
+		this.setupClickToJump(previewEl);
 
-		// Start
 		new Notice(`Reading ${sentences.length} sentences...`);
 		await this.controller.start(sentences, 0, this.settings.speed);
 	}
 
 	private stopPlayback(): void {
+		this.teardownClickToJump();
 		if (this.controller) {
 			this.controller.stop();
 			this.controller = null;
@@ -222,7 +219,6 @@ export default class TTSReaderPlugin extends Plugin {
 			return this.deepInfraEngine;
 		}
 
-		// Web Speech
 		if (typeof speechSynthesis === "undefined") {
 			new Notice(
 				"TTS Reader: Web Speech API is not available on this platform.",
@@ -248,6 +244,7 @@ export default class TTSReaderPlugin extends Plugin {
 		};
 		toolbar.onPause = () => controller.pause();
 		toolbar.onStop = () => this.stopPlayback();
+		toolbar.onClose = () => this.stopPlayback();
 		toolbar.onPrev = () => controller.skipBackward(this.settings.speed);
 		toolbar.onNext = () => controller.skipForward(this.settings.speed);
 		toolbar.onSpeedChange = (speed) => {
@@ -275,9 +272,66 @@ export default class TTSReaderPlugin extends Plugin {
 		};
 	}
 
+	// --- Click-to-jump ---
+
+	private setupClickToJump(previewEl: HTMLElement): void {
+		this.clickHandler = (e: MouseEvent) => {
+			if (!this.controller || this.controller.state === "idle") return;
+
+			// Don't intercept clicks on the toolbar itself
+			if ((e.target as HTMLElement)?.closest(".tts-reader-toolbar")) return;
+
+			const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+			if (!range) return;
+
+			const clickNode = range.startContainer;
+			const clickOffset = range.startOffset;
+			const sentences = this.controller.sentences;
+
+			// Try exact match: is the click point inside a sentence range?
+			for (let i = 0; i < sentences.length; i++) {
+				for (const r of sentences[i].ranges) {
+					try {
+						if (r.isPointInRange(clickNode, clickOffset)) {
+							this.controller.jumpTo(i, this.settings.speed);
+							return;
+						}
+					} catch {
+						// range may be detached
+					}
+				}
+			}
+
+			// Fallback: find the sentence whose block element contains the click
+			const clickedBlock = (clickNode as HTMLElement).closest?.(
+				"p, h1, h2, h3, h4, h5, h6, li, td, th",
+			) ?? clickNode.parentElement?.closest(
+				"p, h1, h2, h3, h4, h5, h6, li, td, th",
+			);
+			if (clickedBlock) {
+				for (let i = 0; i < sentences.length; i++) {
+					if (sentences[i].blockEl === clickedBlock) {
+						this.controller.jumpTo(i, this.settings.speed);
+						return;
+					}
+				}
+			}
+		};
+
+		this.clickTarget = previewEl;
+		previewEl.addEventListener("click", this.clickHandler);
+	}
+
+	private teardownClickToJump(): void {
+		if (this.clickHandler && this.clickTarget) {
+			this.clickTarget.removeEventListener("click", this.clickHandler);
+		}
+		this.clickHandler = null;
+		this.clickTarget = null;
+	}
+
 	private changeSpeed(delta: number): void {
-		let newSpeed =
-			Math.round((this.settings.speed + delta) * 100) / 100;
+		let newSpeed = Math.round((this.settings.speed + delta) * 100) / 100;
 		newSpeed = Math.max(SPEED_MIN, Math.min(SPEED_MAX, newSpeed));
 		this.settings.speed = newSpeed;
 		this.saveSettings();

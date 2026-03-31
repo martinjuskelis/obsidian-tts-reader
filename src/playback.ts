@@ -5,21 +5,21 @@ import type { DeepInfraEngine } from "./deepinfra";
 /**
  * Orchestrates TTS playback: drives the engine sentence-by-sentence,
  * highlights the current sentence, and handles user controls.
+ *
+ * Uses a generation counter to prevent concurrent speakCurrent loops
+ * when the user skips forward/backward while a sentence is playing.
  */
 export class PlaybackController {
-	private sentences: SentenceInfo[] = [];
+	private _sentences: SentenceInfo[] = [];
 	private currentIndex = -1;
 	private _state: PlaybackState = "idle";
 	private engine: TTSEngine;
 	private highlighter: Highlighter;
 	private autoScroll: boolean;
-	private stopped = false;
+	private generation = 0;
 
-	/** Fired when play/pause/idle state changes */
 	onStateChange?: (state: PlaybackState) => void;
-	/** Fired when advancing to a new sentence */
 	onSentenceChange?: (index: number, total: number) => void;
-	/** Fired when playback reaches the end or is stopped */
 	onComplete?: () => void;
 
 	constructor(
@@ -41,21 +41,23 @@ export class PlaybackController {
 	}
 
 	get sentenceCount(): number {
-		return this.sentences.length;
+		return this._sentences.length;
 	}
 
-	/** Start playback from the beginning (or a specific sentence index). */
+	get sentences(): readonly SentenceInfo[] {
+		return this._sentences;
+	}
+
 	async start(
 		sentences: SentenceInfo[],
 		startIndex = 0,
 		speed = 1.0,
 	): Promise<void> {
-		this.sentences = sentences;
+		this._sentences = sentences;
 		this.currentIndex = startIndex;
-		this.stopped = false;
-		this.setState("playing");
 		this.engine.setSpeed(speed);
-		await this.speakCurrent(speed);
+		this.setState("playing");
+		await this.runLoop(speed);
 	}
 
 	async pause(): Promise<void> {
@@ -82,40 +84,47 @@ export class PlaybackController {
 	}
 
 	stop(): void {
-		this.stopped = true;
+		this.generation++; // kill any running loop
 		this.engine.stop();
 		this.highlighter.clear();
 		this.currentIndex = -1;
-		this.sentences = [];
+		this._sentences = [];
 		this.setState("idle");
 		this.onComplete?.();
 	}
 
-	/** Skip to the next sentence. */
 	async skipForward(speed: number): Promise<void> {
-		if (this.sentences.length === 0) return;
-		if (this.currentIndex < this.sentences.length - 1) {
+		if (this._sentences.length === 0) return;
+		if (this.currentIndex < this._sentences.length - 1) {
+			this.generation++; // kill the current loop
 			this.engine.stop();
 			this.currentIndex++;
-			this.stopped = false;
 			this.setState("playing");
-			await this.speakCurrent(speed);
+			await this.runLoop(speed);
 		}
 	}
 
-	/** Skip to the previous sentence. */
 	async skipBackward(speed: number): Promise<void> {
-		if (this.sentences.length === 0) return;
+		if (this._sentences.length === 0) return;
 		if (this.currentIndex > 0) {
+			this.generation++;
 			this.engine.stop();
 			this.currentIndex--;
-			this.stopped = false;
 			this.setState("playing");
-			await this.speakCurrent(speed);
+			await this.runLoop(speed);
 		}
 	}
 
-	/** Update speed (applies to the next sentence for Web Speech, immediately for DeepInfra). */
+	/** Jump to an arbitrary sentence index (e.g. from click-to-read). */
+	async jumpTo(index: number, speed: number): Promise<void> {
+		if (index < 0 || index >= this._sentences.length) return;
+		this.generation++;
+		this.engine.stop();
+		this.currentIndex = index;
+		this.setState("playing");
+		await this.runLoop(speed);
+	}
+
 	setSpeed(speed: number): void {
 		this.engine.setSpeed(speed);
 	}
@@ -126,41 +135,37 @@ export class PlaybackController {
 
 	// --- Internal ---
 
-	private async speakCurrent(speed: number): Promise<void> {
+	/**
+	 * Main playback loop. Captures the current generation so it can
+	 * bail out if a newer loop has been started (by skip/jump/stop).
+	 */
+	private async runLoop(speed: number): Promise<void> {
+		const gen = ++this.generation;
+
 		while (
-			this.currentIndex < this.sentences.length &&
-			!this.stopped
+			this.currentIndex < this._sentences.length &&
+			gen === this.generation
 		) {
-			const sentence = this.sentences[this.currentIndex];
+			const sentence = this._sentences[this.currentIndex];
 
-			// Notify UI
-			this.onSentenceChange?.(
-				this.currentIndex,
-				this.sentences.length,
-			);
-
-			// Highlight
+			this.onSentenceChange?.(this.currentIndex, this._sentences.length);
 			this.highlighter.highlight(sentence, this.autoScroll);
-
-			// Pre-buffer next sentences for DeepInfra
 			this.preBufferNext();
 
-			// Speak this sentence
 			try {
 				await this.engine.speak(sentence.text, speed);
 			} catch (err) {
 				console.error("TTS speak error:", err);
-				// Don't stop on individual sentence errors; skip to next
 			}
 
-			if (this.stopped || this._state === "idle") return;
+			// If a newer generation started (skip/stop), exit silently
+			if (gen !== this.generation) return;
 
-			// Advance to next sentence
 			this.currentIndex++;
 		}
 
-		// Reached the end
-		if (!this.stopped) {
+		// Reached the end naturally
+		if (gen === this.generation) {
 			this.highlighter.clear();
 			this.setState("idle");
 			this.onComplete?.();
@@ -168,17 +173,16 @@ export class PlaybackController {
 	}
 
 	private preBufferNext(): void {
-		// Only applies to DeepInfra engine
 		const engine = this.engine as DeepInfraEngine;
 		if (typeof engine.preBuffer !== "function") return;
 
 		const upcoming: string[] = [];
 		for (
 			let i = this.currentIndex + 1;
-			i < Math.min(this.currentIndex + 3, this.sentences.length);
+			i < Math.min(this.currentIndex + 3, this._sentences.length);
 			i++
 		) {
-			upcoming.push(this.sentences[i].text);
+			upcoming.push(this._sentences[i].text);
 		}
 		if (upcoming.length > 0) {
 			engine.preBuffer(upcoming);
