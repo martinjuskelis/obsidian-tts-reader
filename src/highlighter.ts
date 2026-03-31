@@ -1,7 +1,30 @@
 import type { SentenceInfo } from "./types";
 
-const SKIP_SELECTOR =
-	"pre, code, .frontmatter-container, .metadata-container, .frontmatter, style, script, .callout-icon";
+/**
+ * Elements whose text content should be excluded from the search buffer.
+ * Obsidian adds invisible UI elements (heading fold buttons, copy buttons,
+ * embed links) whose text would pollute the buffer and break matching.
+ */
+const SKIP_SELECTOR = [
+	"pre",
+	"code",
+	".frontmatter-container",
+	".metadata-container",
+	".frontmatter",
+	"style",
+	"script",
+	".callout-icon",
+	".heading-collapse-indicator",
+	".collapse-indicator",
+	".copy-code-button",
+	".markdown-embed-link",
+	".footnote-ref",
+	".footnote-backref",
+	".math-display",
+	".MathJax",
+	"svg",
+	"button",
+].join(", ");
 
 interface TextRun {
 	node: Text;
@@ -20,7 +43,6 @@ export class Highlighter {
 	private container: HTMLElement | null = null;
 	private useCustomHighlight: boolean;
 	private marks: HTMLElement[] = [];
-	private lastSearchOffset = 0;
 	private lastRanges: Range[] = [];
 	private lastSentenceText = "";
 	/** 0–1 ratio of current sentence position through the document */
@@ -35,7 +57,6 @@ export class Highlighter {
 
 	setContainer(el: HTMLElement): void {
 		this.container = el;
-		this.lastSearchOffset = 0;
 	}
 
 	/** Update progress ratio (called by playback controller on sentence change). */
@@ -139,7 +160,7 @@ export class Highlighter {
 	}
 
 	resetSearchPosition(): void {
-		this.lastSearchOffset = 0;
+		// No-op — search now uses progress-based positioning
 	}
 
 	// --- DOM search ---
@@ -201,11 +222,16 @@ export class Highlighter {
 			})
 			.join("");
 
-		// Search
-		let idx = buffer.indexOf(text, this.lastSearchOffset);
+		// Search from an estimated position based on reading progress,
+		// with fallback to full buffer search. Avoids the old
+		// lastSearchOffset which broke when the DOM changed.
+		const estimatedPos = Math.max(
+			0,
+			Math.floor(buffer.length * this.progress) - 200,
+		);
+		let idx = buffer.indexOf(text, estimatedPos);
 		if (idx === -1) idx = buffer.indexOf(text);
 		if (idx === -1) return [];
-		this.lastSearchOffset = idx + text.length;
 
 		// Create Ranges — one per text node that overlaps the match
 		const ranges: Range[] = [];
