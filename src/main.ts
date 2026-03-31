@@ -30,6 +30,21 @@ export default class TTSReaderPlugin extends Plugin {
 		this.addSettingTab(new TTSReaderSettingTab(this.app, this));
 		this.registerCommands();
 
+		// Ribbon icon — toggles playback on/off
+		this.addRibbonIcon("headphones", "Read aloud", () => {
+			if (this.controller && this.controller.state !== "idle") {
+				this.stopPlayback();
+			} else {
+				const view =
+					this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (view) {
+					this.startPlayback(view);
+				} else {
+					new Notice("TTS Reader: Open a document first.");
+				}
+			}
+		});
+
 		// Stop playback when the user navigates away or switches views
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => {
@@ -66,6 +81,21 @@ export default class TTSReaderPlugin extends Plugin {
 				if (!view) return false;
 				if (checking) return true;
 				this.startPlayback(view);
+			},
+		});
+
+		this.addCommand({
+			id: "toggle-reading",
+			name: "Toggle reading aloud",
+			callback: () => {
+				if (this.controller && this.controller.state !== "idle") {
+					this.stopPlayback();
+				} else {
+					const view =
+						this.app.workspace.getActiveViewOfType(MarkdownView);
+					if (view) this.startPlayback(view);
+					else new Notice("TTS Reader: Open a document first.");
+				}
 			},
 		});
 
@@ -152,8 +182,6 @@ export default class TTSReaderPlugin extends Plugin {
 			return;
 		}
 
-		// Extract sentences from the raw markdown (not the DOM)
-		// so we get the full document regardless of lazy rendering.
 		const markdown = view.getViewData();
 		const sentences = extractSentences(
 			markdown,
@@ -168,7 +196,6 @@ export default class TTSReaderPlugin extends Plugin {
 		const engine = this.getEngine();
 		if (!engine) return;
 
-		// The highlighter searches the live DOM for sentence text
 		const previewEl = view.contentEl.querySelector(
 			".markdown-preview-view",
 		) as HTMLElement | null;
@@ -298,7 +325,41 @@ export default class TTSReaderPlugin extends Plugin {
 			if ((e.target as HTMLElement)?.closest(".tts-reader-toolbar"))
 				return;
 
-			// Find the block element at the click point
+			const sentences = this.controller.sentences;
+
+			// Use caretRangeFromPoint to get the exact click position,
+			// extract a text snippet, and find the sentence containing it.
+			const caretRange = document.caretRangeFromPoint(
+				e.clientX,
+				e.clientY,
+			);
+			if (
+				caretRange &&
+				caretRange.startContainer.nodeType === Node.TEXT_NODE
+			) {
+				const nodeText = caretRange.startContainer.textContent ?? "";
+				const offset = caretRange.startOffset;
+
+				// Grab ~20 chars around the click point as a search key
+				const ctxStart = Math.max(0, offset - 10);
+				const ctxEnd = Math.min(nodeText.length, offset + 10);
+				const snippet = nodeText.substring(ctxStart, ctxEnd).trim();
+
+				if (snippet.length >= 3) {
+					for (let i = 0; i < sentences.length; i++) {
+						if (sentences[i].text.includes(snippet)) {
+							this.highlighter?.resetSearchPosition();
+							this.controller.jumpTo(
+								i,
+								this.settings.speed,
+							);
+							return;
+						}
+					}
+				}
+			}
+
+			// Fallback: match by block element text
 			const target = e.target as HTMLElement;
 			const block = target.closest(
 				"p, h1, h2, h3, h4, h5, h6, li, td, th, dt, dd, blockquote",
@@ -308,8 +369,6 @@ export default class TTSReaderPlugin extends Plugin {
 			const blockText = block.textContent ?? "";
 			if (blockText.trim().length === 0) return;
 
-			// Find the first sentence whose text appears in this block
-			const sentences = this.controller.sentences;
 			for (let i = 0; i < sentences.length; i++) {
 				if (blockText.includes(sentences[i].text)) {
 					this.highlighter?.resetSearchPosition();
