@@ -35,10 +35,6 @@ export const SPEED_STEP = 0.25;
 
 export interface SentenceInfo {
 	text: string;
-	/** The block-level element containing this sentence (for scrolling) */
-	blockEl: HTMLElement;
-	/** DOM Range objects covering this sentence's text (for highlighting) */
-	ranges: Range[];
 }
 
 export type PlaybackState = "idle" | "playing" | "paused";

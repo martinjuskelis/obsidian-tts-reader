@@ -90,17 +90,47 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 			new Setting(containerEl)
 				.setName("Model")
-				.setDesc("Choose a DeepInfra TTS model.")
+				.setDesc("Choose a preset or enter a custom model ID below.")
 				.addDropdown((d) => {
 					for (const m of DEEPINFRA_MODELS) {
 						d.addOption(m.id, m.name);
 					}
-					d.setValue(this.plugin.settings.deepinfraModel);
+					d.addOption("custom", "Custom model...");
+					const current = DEEPINFRA_MODELS.some(
+						(m) => m.id === this.plugin.settings.deepinfraModel,
+					)
+						? this.plugin.settings.deepinfraModel
+						: "custom";
+					d.setValue(current);
 					d.onChange(async (v) => {
-						this.plugin.settings.deepinfraModel = v;
-						await this.plugin.saveSettings();
+						if (v !== "custom") {
+							this.plugin.settings.deepinfraModel = v;
+							await this.plugin.saveSettings();
+						}
+						this.display();
 					});
 				});
+
+			// Show custom model text field if "Custom" is selected or model isn't in presets
+			const isCustom = !DEEPINFRA_MODELS.some(
+				(m) => m.id === this.plugin.settings.deepinfraModel,
+			);
+			if (isCustom) {
+				new Setting(containerEl)
+					.setName("Custom model ID")
+					.setDesc(
+						"Full model ID from DeepInfra, e.g. hexgrad/Kokoro-82M",
+					)
+					.addText((t) =>
+						t
+							.setPlaceholder("owner/model-name")
+							.setValue(this.plugin.settings.deepinfraModel)
+							.onChange(async (v) => {
+								this.plugin.settings.deepinfraModel = v;
+								await this.plugin.saveSettings();
+							}),
+					);
+			}
 		}
 
 		// --- Text extraction ---

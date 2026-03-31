@@ -112,10 +112,10 @@ export class DeepInfraEngine implements TTSEngine {
 		try {
 			const payload: Record<string, unknown> = {
 				text,
-				output_format: "mp3",
 			};
 
-			if (this.model === "hexgrad/Kokoro-82M") {
+			// Kokoro expects specific fields
+			if (this.model.includes("Kokoro")) {
 				payload.preset_voice = "af_heart";
 			}
 
@@ -132,17 +132,21 @@ export class DeepInfraEngine implements TTSEngine {
 			const contentType =
 				response.headers["content-type"] || "application/json";
 
+			// Direct binary audio response
 			if (contentType.includes("audio/")) {
 				return new Blob([response.arrayBuffer], { type: contentType });
 			}
 
+			// JSON response — try multiple fields where audio data might live
 			let json: Record<string, unknown>;
 			try {
 				json = response.json;
 			} catch {
-				return new Blob([response.arrayBuffer], { type: "audio/mp3" });
+				// Not valid JSON — treat entire response as audio
+				return new Blob([response.arrayBuffer], { type: "audio/wav" });
 			}
 
+			// base64 audio in "audio" field
 			if (typeof json.audio === "string") {
 				const binaryStr = atob(json.audio);
 				const bytes = new Uint8Array(binaryStr.length);
@@ -154,6 +158,17 @@ export class DeepInfraEngine implements TTSEngine {
 				});
 			}
 
+			// base64 audio in "output" field (some models use this)
+			if (typeof json.output === "string") {
+				const binaryStr = atob(json.output);
+				const bytes = new Uint8Array(binaryStr.length);
+				for (let i = 0; i < binaryStr.length; i++) {
+					bytes[i] = binaryStr.charCodeAt(i);
+				}
+				return new Blob([bytes], { type: "audio/wav" });
+			}
+
+			// URL to audio file
 			if (typeof json.audio_url === "string") {
 				const audioResp = await requestUrl({
 					url: json.audio_url as string,
@@ -161,7 +176,18 @@ export class DeepInfraEngine implements TTSEngine {
 				return new Blob([audioResp.arrayBuffer], { type: "audio/mp3" });
 			}
 
-			return new Blob([response.arrayBuffer], { type: "audio/mp3" });
+			if (typeof json.output_url === "string") {
+				const audioResp = await requestUrl({
+					url: json.output_url as string,
+				});
+				return new Blob([audioResp.arrayBuffer], { type: "audio/mp3" });
+			}
+
+			console.error(
+				"DeepInfra TTS: unexpected response format. Keys:",
+				Object.keys(json),
+			);
+			return null;
 		} catch (e) {
 			console.error("DeepInfra TTS fetch failed:", e);
 			return null;

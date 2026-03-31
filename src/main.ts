@@ -4,7 +4,6 @@ import {
 	SPEED_MIN,
 	SPEED_MAX,
 	SPEED_STEP,
-	type SentenceInfo,
 	type TTSReaderSettings,
 	type TTSEngine,
 } from "./types";
@@ -153,16 +152,11 @@ export default class TTSReaderPlugin extends Plugin {
 			return;
 		}
 
-		const previewEl = view.contentEl.querySelector(
-			".markdown-preview-view",
-		) as HTMLElement | null;
-		if (!previewEl) {
-			new Notice("TTS Reader: Could not find the document content.");
-			return;
-		}
-
+		// Extract sentences from the raw markdown (not the DOM)
+		// so we get the full document regardless of lazy rendering.
+		const markdown = view.getViewData();
 		const sentences = extractSentences(
-			previewEl,
+			markdown,
 			this.settings.skipCodeBlocks,
 			this.settings.skipFrontmatter,
 		);
@@ -174,7 +168,16 @@ export default class TTSReaderPlugin extends Plugin {
 		const engine = this.getEngine();
 		if (!engine) return;
 
+		// The highlighter searches the live DOM for sentence text
+		const previewEl = view.contentEl.querySelector(
+			".markdown-preview-view",
+		) as HTMLElement | null;
+
 		this.highlighter = new Highlighter();
+		if (previewEl) {
+			this.highlighter.setContainer(previewEl);
+		}
+
 		this.controller = new PlaybackController(
 			engine,
 			this.highlighter,
@@ -184,7 +187,7 @@ export default class TTSReaderPlugin extends Plugin {
 		this.toolbar = new Toolbar(view.contentEl, this.settings.speed);
 		this.wireToolbar();
 		this.wireController();
-		this.setupClickToJump(previewEl);
+		if (previewEl) this.setupClickToJump(previewEl);
 
 		new Notice(`Reading ${sentences.length} sentences...`);
 		await this.controller.start(sentences, 0, this.settings.speed);
@@ -250,9 +253,11 @@ export default class TTSReaderPlugin extends Plugin {
 			}
 		};
 		toolbar.onPause = () => controller.pause();
-		toolbar.onStop = () => this.stopPlayback();
 		toolbar.onClose = () => this.stopPlayback();
-		toolbar.onPrev = () => controller.skipBackward(this.settings.speed);
+		toolbar.onPrev = () => {
+			this.highlighter?.resetSearchPosition();
+			controller.skipBackward(this.settings.speed);
+		};
 		toolbar.onNext = () => controller.skipForward(this.settings.speed);
 		toolbar.onSpeedChange = (speed) => {
 			this.settings.speed = speed;
@@ -275,8 +280,6 @@ export default class TTSReaderPlugin extends Plugin {
 
 		this.controller.onComplete = () => {
 			new Notice("TTS Reader: Finished reading.");
-			// Clean up UI without calling stop() again (onComplete only
-			// fires from natural end, not from stop(), so no recursion).
 			this.teardownClickToJump();
 			if (this.toolbar) {
 				this.toolbar.destroy();
@@ -292,43 +295,26 @@ export default class TTSReaderPlugin extends Plugin {
 	private setupClickToJump(previewEl: HTMLElement): void {
 		this.clickHandler = (e: MouseEvent) => {
 			if (!this.controller || this.controller.state === "idle") return;
+			if ((e.target as HTMLElement)?.closest(".tts-reader-toolbar"))
+				return;
 
-			// Don't intercept clicks on the toolbar itself
-			if ((e.target as HTMLElement)?.closest(".tts-reader-toolbar")) return;
-
-			const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-			if (!range) return;
-
-			const clickNode = range.startContainer;
-			const clickOffset = range.startOffset;
-			const sentences = this.controller.sentences;
-
-			// Try exact match: is the click point inside a sentence range?
-			for (let i = 0; i < sentences.length; i++) {
-				for (const r of sentences[i].ranges) {
-					try {
-						if (r.isPointInRange(clickNode, clickOffset)) {
-							this.controller.jumpTo(i, this.settings.speed);
-							return;
-						}
-					} catch {
-						// range may be detached
-					}
-				}
-			}
-
-			// Fallback: find the sentence whose block element contains the click
-			const clickedBlock = (clickNode as HTMLElement).closest?.(
-				"p, h1, h2, h3, h4, h5, h6, li, td, th",
-			) ?? clickNode.parentElement?.closest(
-				"p, h1, h2, h3, h4, h5, h6, li, td, th",
+			// Find the block element at the click point
+			const target = e.target as HTMLElement;
+			const block = target.closest(
+				"p, h1, h2, h3, h4, h5, h6, li, td, th, dt, dd, blockquote",
 			);
-			if (clickedBlock) {
-				for (let i = 0; i < sentences.length; i++) {
-					if (sentences[i].blockEl === clickedBlock) {
-						this.controller.jumpTo(i, this.settings.speed);
-						return;
-					}
+			if (!block) return;
+
+			const blockText = block.textContent ?? "";
+			if (blockText.trim().length === 0) return;
+
+			// Find the first sentence whose text appears in this block
+			const sentences = this.controller.sentences;
+			for (let i = 0; i < sentences.length; i++) {
+				if (blockText.includes(sentences[i].text)) {
+					this.highlighter?.resetSearchPosition();
+					this.controller.jumpTo(i, this.settings.speed);
+					return;
 				}
 			}
 		};

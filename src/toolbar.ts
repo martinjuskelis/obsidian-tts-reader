@@ -5,7 +5,7 @@ import { SPEED_MIN, SPEED_MAX, SPEED_STEP, type PlaybackState } from "./types";
  * Floating playback toolbar rendered at the bottom of the markdown view.
  * Uses Obsidian's native Lucide icons for a consistent look.
  *
- * Layout: [Prev] [Play/Pause] [Next] [Stop]  |  [-] 1.0x [+]  |  3/20  |  [X]
+ * Layout: [Prev] [Play/Pause] [Next]  |  [-] 1.0x [+]  |  3/20  |  [X]
  */
 export class Toolbar {
 	private containerEl: HTMLElement;
@@ -15,7 +15,6 @@ export class Toolbar {
 	private prevBtn: HTMLButtonElement;
 	private playBtn: HTMLButtonElement;
 	private nextBtn: HTMLButtonElement;
-	private stopBtn: HTMLButtonElement;
 	private slowerBtn: HTMLButtonElement;
 	private fasterBtn: HTMLButtonElement;
 	private closeBtn: HTMLButtonElement;
@@ -27,7 +26,6 @@ export class Toolbar {
 	// Callbacks
 	onPlay?: () => void;
 	onPause?: () => void;
-	onStop?: () => void;
 	onPrev?: () => void;
 	onNext?: () => void;
 	onClose?: () => void;
@@ -54,9 +52,6 @@ export class Toolbar {
 		);
 		this.nextBtn = this.createButton(controls, "skip-forward", "Next sentence", () =>
 			this.onNext?.(),
-		);
-		this.stopBtn = this.createButton(controls, "square", "Stop", () =>
-			this.onStop?.(),
 		);
 
 		controls.createDiv({ cls: "tts-reader-separator" });
