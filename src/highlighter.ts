@@ -191,11 +191,13 @@ export class Highlighter {
 			}
 		}
 
-		// Build normalized string from the map
+		// Build normalized string from the map.
+		// Whitespace entries (including \n from <br>) become spaces.
 		const buffer = map
 			.map((m) => {
 				if (m.ri === -1) return " ";
-				return (runs[m.ri].node.textContent ?? "")[m.ci];
+				const ch = (runs[m.ri].node.textContent ?? "")[m.ci];
+				return /\s/.test(ch) ? " " : ch;
 			})
 			.join("");
 
