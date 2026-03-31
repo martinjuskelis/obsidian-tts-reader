@@ -30,6 +30,13 @@ export default class TTSReaderPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new TTSReaderSettingTab(this.app, this));
 		this.registerCommands();
+
+		// Stop playback when the user navigates away or switches views
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", () => {
+				this.stopPlayback();
+			}),
+		);
 	}
 
 	onunload(): void {

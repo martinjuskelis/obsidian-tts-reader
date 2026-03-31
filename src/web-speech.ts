@@ -3,22 +3,21 @@ import type { TTSEngine, VoiceOption } from "./types";
 /**
  * TTS engine backed by the browser/OS Web Speech API.
  *
- * Speaks one utterance at a time. Each call to speak() returns a Promise
- * that resolves when the utterance finishes (or rejects on error/cancel).
+ * Each call to speak() creates a self-contained Promise whose
+ * resolve/reject are captured in a closure tied to that specific
+ * utterance — no shared slots that a later call can clobber.
  *
- * Handles two platform quirks:
- * - Chrome/Electron: speechSynthesis.speak() silently fails if called too
- *   long after user interaction. Workaround: cancel() before each speak().
- * - Android: getVoices() returns [] until the "voiceschanged" event fires.
+ * An AbortController provides a reliable "force-resolve" path:
+ * when stop() or a new speak() is called, the abort signal fires
+ * and the pending promise resolves immediately, even if the browser
+ * never dispatches onend/onerror for the cancelled utterance.
  */
 export class WebSpeechEngine implements TTSEngine {
-	private utterance: SpeechSynthesisUtterance | null = null;
 	private _speaking = false;
 	private _paused = false;
 	private selectedVoiceURI = "";
-	private currentSpeed = 1.0;
-	private resolveSpeak: (() => void) | null = null;
-	private rejectSpeak: ((reason: unknown) => void) | null = null;
+	private currentUtterance: SpeechSynthesisUtterance | null = null;
+	private ac: AbortController | null = null;
 
 	get speaking(): boolean {
 		return this._speaking;
@@ -31,59 +30,71 @@ export class WebSpeechEngine implements TTSEngine {
 		this.selectedVoiceURI = voiceURI;
 	}
 
-	setSpeed(speed: number): void {
-		this.currentSpeed = speed;
-		// Speed can't be changed mid-utterance with Web Speech API,
-		// but it will apply to the next sentence.
+	setSpeed(_speed: number): void {
+		// Web Speech API rate is set per-utterance at speak() time.
 	}
 
 	async speak(text: string, speed: number): Promise<void> {
-		// Cancel any in-progress utterance (also works around Chrome bug)
+		// 1. Kill anything still in the queue / in progress.
 		speechSynthesis.cancel();
+		this.ac?.abort(); // force-resolve the previous promise
+
+		// 2. Fresh abort controller for THIS utterance.
+		const ac = new AbortController();
+		this.ac = ac;
 
 		return new Promise<void>((resolve, reject) => {
-			this.resolveSpeak = resolve;
-			this.rejectSpeak = reject;
+			// ---- settled guard: first callback wins ----
+			let settled = false;
+			const finish = () => {
+				if (settled) return;
+				settled = true;
+				if (this.currentUtterance === utterance) {
+					this._speaking = false;
+					this._paused = false;
+					this.currentUtterance = null;
+				}
+				resolve();
+			};
+
+			// If stop()/skip() aborts us, resolve immediately.
+			ac.signal.addEventListener("abort", finish, { once: true });
 
 			const utterance = new SpeechSynthesisUtterance(text);
 			utterance.rate = speed;
 
-			// Find the selected voice
+			// Pick voice
 			if (this.selectedVoiceURI) {
 				const voices = speechSynthesis.getVoices();
-				const voice = voices.find(
+				const v = voices.find(
 					(v) => v.voiceURI === this.selectedVoiceURI,
 				);
-				if (voice) utterance.voice = voice;
+				if (v) utterance.voice = v;
 			}
 
-			utterance.onend = () => {
-				this._speaking = false;
-				this._paused = false;
-				this.resolveSpeak?.();
-				this.resolveSpeak = null;
-				this.rejectSpeak = null;
-			};
+			utterance.onend = finish;
 
 			utterance.onerror = (event) => {
-				this._speaking = false;
-				this._paused = false;
-				// "interrupted" and "canceled" are normal when we call stop/skip
+				if (settled) return;
 				if (
 					event.error === "interrupted" ||
 					event.error === "canceled"
 				) {
-					this.resolveSpeak?.();
+					finish();
 				} else {
-					this.rejectSpeak?.(
+					settled = true;
+					if (this.currentUtterance === utterance) {
+						this._speaking = false;
+						this._paused = false;
+						this.currentUtterance = null;
+					}
+					reject(
 						new Error(`Speech synthesis error: ${event.error}`),
 					);
 				}
-				this.resolveSpeak = null;
-				this.rejectSpeak = null;
 			};
 
-			this.utterance = utterance;
+			this.currentUtterance = utterance;
 			this._speaking = true;
 			this._paused = false;
 			speechSynthesis.speak(utterance);
@@ -106,9 +117,11 @@ export class WebSpeechEngine implements TTSEngine {
 
 	stop(): void {
 		speechSynthesis.cancel();
+		this.ac?.abort();
+		this.ac = null;
 		this._speaking = false;
 		this._paused = false;
-		// resolve is handled by the onerror/onend handler with "canceled"
+		this.currentUtterance = null;
 	}
 
 	async getVoices(): Promise<VoiceOption[]> {

@@ -6,23 +6,20 @@ const API_BASE = "https://api.deepinfra.com/v1/inference";
 /**
  * TTS engine backed by DeepInfra's hosted TTS models.
  *
- * Fetches audio for each sentence via the DeepInfra inference API, then
- * plays it through an HTMLAudioElement. Supports pre-buffering the next
- * sentence(s) while the current one is playing.
+ * Uses an AbortController so that stop()/skip() reliably resolves
+ * the pending speak() promise (HTMLAudioElement doesn't fire onended
+ * when you pause+remove it).
  */
 export class DeepInfraEngine implements TTSEngine {
 	private audio: HTMLAudioElement | null = null;
 	private _speaking = false;
 	private _paused = false;
-	private currentSpeed = 1.0;
 	private apiKey: string;
 	private model: string;
-	private aborted = false;
+	private ac: AbortController | null = null;
 
 	/** Pre-fetched audio blobs keyed by sentence text */
 	private preBufferCache = new Map<string, Blob>();
-	/** Sentences queued for pre-buffering */
-	private preBufferQueue: string[] = [];
 
 	constructor(apiKey: string, model: string) {
 		this.apiKey = apiKey;
@@ -37,15 +34,13 @@ export class DeepInfraEngine implements TTSEngine {
 	}
 
 	setSpeed(speed: number): void {
-		this.currentSpeed = speed;
 		if (this.audio) {
 			this.audio.playbackRate = speed;
 		}
 	}
 
-	/** Queue sentences for pre-buffering. Call this with upcoming sentences. */
+	/** Queue sentences for pre-buffering. */
 	preBuffer(sentences: string[]): void {
-		this.preBufferQueue = sentences;
 		for (const text of sentences) {
 			if (!this.preBufferCache.has(text)) {
 				this.fetchAudioBlob(text).then((blob) => {
@@ -56,7 +51,9 @@ export class DeepInfraEngine implements TTSEngine {
 	}
 
 	async speak(text: string, speed: number): Promise<void> {
-		this.aborted = false;
+		this.ac?.abort();
+		const ac = new AbortController();
+		this.ac = ac;
 
 		// Use pre-buffered audio if available
 		let blob: Blob | null = this.preBufferCache.get(text) ?? null;
@@ -66,11 +63,9 @@ export class DeepInfraEngine implements TTSEngine {
 			blob = await this.fetchAudioBlob(text);
 		}
 
-		if (!blob || this.aborted) {
-			return;
-		}
+		if (!blob || ac.signal.aborted) return;
 
-		return this.playBlob(blob, speed);
+		return this.playBlob(blob, speed, ac.signal);
 	}
 
 	pause(): void {
@@ -88,11 +83,10 @@ export class DeepInfraEngine implements TTSEngine {
 	}
 
 	stop(): void {
-		this.aborted = true;
+		this.ac?.abort();
+		this.ac = null;
 		if (this.audio) {
 			this.audio.pause();
-			this.audio.removeAttribute("src");
-			this.audio.load();
 			this.audio = null;
 		}
 		this._speaking = false;
@@ -101,11 +95,7 @@ export class DeepInfraEngine implements TTSEngine {
 	}
 
 	async getVoices(): Promise<VoiceOption[]> {
-		// DeepInfra models have model-specific voice options;
-		// return a sensible default list per model.
-		return [
-			{ id: "default", name: "Default", lang: "en" },
-		];
+		return [{ id: "default", name: "Default", lang: "en" }];
 	}
 
 	updateConfig(apiKey: string, model: string): void {
@@ -125,7 +115,6 @@ export class DeepInfraEngine implements TTSEngine {
 				output_format: "mp3",
 			};
 
-			// Model-specific parameters
 			if (this.model === "hexgrad/Kokoro-82M") {
 				payload.preset_voice = "af_heart";
 			}
@@ -140,21 +129,17 @@ export class DeepInfraEngine implements TTSEngine {
 				body: JSON.stringify(payload),
 			});
 
-			// Response format varies by model. Handle common cases:
 			const contentType =
 				response.headers["content-type"] || "application/json";
 
 			if (contentType.includes("audio/")) {
-				// Direct binary audio response
 				return new Blob([response.arrayBuffer], { type: contentType });
 			}
 
-			// JSON response — look for base64-encoded audio
 			let json: Record<string, unknown>;
 			try {
 				json = response.json;
 			} catch {
-				// If JSON parsing fails, treat as binary audio
 				return new Blob([response.arrayBuffer], { type: "audio/mp3" });
 			}
 
@@ -164,21 +149,18 @@ export class DeepInfraEngine implements TTSEngine {
 				for (let i = 0; i < binaryStr.length; i++) {
 					bytes[i] = binaryStr.charCodeAt(i);
 				}
-				const audioType =
-					(json.content_type as string) || "audio/wav";
-				return new Blob([bytes], { type: audioType });
+				return new Blob([bytes], {
+					type: (json.content_type as string) || "audio/wav",
+				});
 			}
 
 			if (typeof json.audio_url === "string") {
 				const audioResp = await requestUrl({
 					url: json.audio_url as string,
 				});
-				return new Blob([audioResp.arrayBuffer], {
-					type: "audio/mp3",
-				});
+				return new Blob([audioResp.arrayBuffer], { type: "audio/mp3" });
 			}
 
-			// Try treating the whole response as audio
 			return new Blob([response.arrayBuffer], { type: "audio/mp3" });
 		} catch (e) {
 			console.error("DeepInfra TTS fetch failed:", e);
@@ -186,16 +168,18 @@ export class DeepInfraEngine implements TTSEngine {
 		}
 	}
 
-	private playBlob(blob: Blob, speed: number): Promise<void> {
+	private playBlob(
+		blob: Blob,
+		speed: number,
+		signal: AbortSignal,
+	): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
 			const url = URL.createObjectURL(blob);
-			const audio = new Audio(url);
-			audio.playbackRate = speed;
-			this.audio = audio;
-			this._speaking = true;
-			this._paused = false;
+			let settled = false;
 
-			audio.onended = () => {
+			const finish = () => {
+				if (settled) return;
+				settled = true;
 				URL.revokeObjectURL(url);
 				this._speaking = false;
 				this._paused = false;
@@ -203,7 +187,20 @@ export class DeepInfraEngine implements TTSEngine {
 				resolve();
 			};
 
+			// Abort signal: resolve immediately when stop/skip fires
+			signal.addEventListener("abort", finish, { once: true });
+
+			const audio = new Audio(url);
+			audio.playbackRate = speed;
+			this.audio = audio;
+			this._speaking = true;
+			this._paused = false;
+
+			audio.onended = finish;
+
 			audio.onerror = () => {
+				if (settled) return;
+				settled = true;
 				URL.revokeObjectURL(url);
 				this._speaking = false;
 				this._paused = false;
@@ -212,6 +209,8 @@ export class DeepInfraEngine implements TTSEngine {
 			};
 
 			audio.play().catch((err) => {
+				if (settled) return;
+				settled = true;
 				URL.revokeObjectURL(url);
 				this._speaking = false;
 				this.audio = null;
