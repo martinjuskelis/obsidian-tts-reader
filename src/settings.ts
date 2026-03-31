@@ -255,6 +255,22 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("Buffer ahead")
+			.setDesc(
+				"How many sentences to pre-fetch while the current one plays. Increase for slow models like Orpheus (5\u201310). Kokoro is fast enough with 2\u20133.",
+			)
+			.addSlider((s) =>
+				s
+					.setLimits(0, 20, 1)
+					.setValue(this.plugin.settings.bufferAhead)
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						this.plugin.settings.bufferAhead = v;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
 			.setName("Toolbar bottom padding")
 			.setDesc(
 				"Extra space below the toolbar (pixels). Increase on mobile if Obsidian's navigation bar covers the controls. Default: 0 on desktop, 80 on mobile.",

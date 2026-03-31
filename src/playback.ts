@@ -12,6 +12,7 @@ export class PlaybackController {
 	private generation = 0;
 	private resumeResolve: (() => void) | null = null;
 	private _speed = 1.0;
+	private _bufferAhead = 5;
 	private consecutiveErrors = 0;
 	private static readonly MAX_CONSECUTIVE_ERRORS = 3;
 
@@ -143,6 +144,10 @@ export class PlaybackController {
 		this.autoScroll = enabled;
 	}
 
+	setBufferAhead(n: number): void {
+		this._bufferAhead = n;
+	}
+
 	// --- Internal ---
 
 	private async runLoop(): Promise<void> {
@@ -205,9 +210,10 @@ export class PlaybackController {
 		if (typeof engine.preBuffer !== "function") return;
 
 		const upcoming: string[] = [];
+		const lookAhead = this._bufferAhead + 1;
 		for (
 			let i = this.currentIndex + 1;
-			i < Math.min(this.currentIndex + 3, this._sentences.length);
+			i < Math.min(this.currentIndex + lookAhead, this._sentences.length);
 			i++
 		) {
 			upcoming.push(this._sentences[i].text);

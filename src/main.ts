@@ -189,6 +189,15 @@ export default class TTSReaderPlugin extends Plugin {
 				this.changeSpeed(-SPEED_STEP);
 			},
 		});
+
+		this.addCommand({
+			id: "open-settings",
+			name: "Open TTS Reader settings",
+			callback: () => {
+				(this.app as any).setting?.open?.();
+				(this.app as any).setting?.openTabById?.(this.manifest.id);
+			},
+		});
 	}
 
 	// --- Playback lifecycle ---
@@ -233,6 +242,7 @@ export default class TTSReaderPlugin extends Plugin {
 			this.highlighter,
 			this.settings.autoScroll,
 		);
+		this.controller.setBufferAhead(this.settings.bufferAhead);
 
 		this.playbackLeaf = view.leaf;
 		this.playbackFilePath = view.file?.path ?? null;
