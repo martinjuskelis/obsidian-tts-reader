@@ -238,19 +238,26 @@ export class Highlighter {
 			const rect = range.getBoundingClientRect();
 			if (rect.height === 0) return;
 
+			// Reserve space for the toolbar at the bottom (~120px covers
+			// toolbar + any padding the user configured).
+			const toolbarReserve = 140;
 			const viewportH = window.innerHeight;
-			if (rect.top >= 0 && rect.bottom <= viewportH) return;
+			const safeBottom = viewportH - toolbarReserve;
+
+			// Already visible in the safe zone — no scroll needed
+			if (rect.top >= 60 && rect.bottom <= safeBottom) return;
 
 			const scrollContainer = this.findScrollContainer(
 				range.startContainer as HTMLElement,
 			);
 			if (scrollContainer) {
 				const containerRect = scrollContainer.getBoundingClientRect();
+				// Position sentence in the upper quarter of the viewport
 				const scrollTop =
 					scrollContainer.scrollTop +
 					rect.top -
 					containerRect.top -
-					containerRect.height / 3;
+					containerRect.height / 4;
 				scrollContainer.scrollTo({
 					top: scrollTop,
 					behavior: "smooth",

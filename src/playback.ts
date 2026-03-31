@@ -2,14 +2,6 @@ import type { TTSEngine, SentenceInfo, PlaybackState } from "./types";
 import type { Highlighter } from "./highlighter";
 import type { DeepInfraEngine } from "./deepinfra";
 
-/**
- * Orchestrates TTS playback: drives the engine sentence-by-sentence,
- * highlights the current sentence, and handles user controls.
- *
- * Uses a generation counter to prevent concurrent loops on skip/jump,
- * and a resume promise to handle pause on platforms where
- * speechSynthesis.pause() is a no-op (Android).
- */
 export class PlaybackController {
 	private _sentences: SentenceInfo[] = [];
 	private currentIndex = -1;
@@ -19,10 +11,10 @@ export class PlaybackController {
 	private autoScroll: boolean;
 	private generation = 0;
 	private resumeResolve: (() => void) | null = null;
+	private _speed = 1.0;
 
 	onStateChange?: (state: PlaybackState) => void;
 	onSentenceChange?: (index: number, total: number) => void;
-	/** Fires only on natural completion (reached end of document). */
 	onComplete?: () => void;
 
 	constructor(
@@ -38,15 +30,12 @@ export class PlaybackController {
 	get state(): PlaybackState {
 		return this._state;
 	}
-
 	get sentenceIndex(): number {
 		return this.currentIndex;
 	}
-
 	get sentenceCount(): number {
 		return this._sentences.length;
 	}
-
 	get sentences(): readonly SentenceInfo[] {
 		return this._sentences;
 	}
@@ -58,9 +47,10 @@ export class PlaybackController {
 	): Promise<void> {
 		this._sentences = sentences;
 		this.currentIndex = startIndex;
+		this._speed = speed;
 		this.engine.setSpeed(speed);
 		this.setState("playing");
-		await this.runLoop(speed);
+		await this.runLoop();
 	}
 
 	async pause(): Promise<void> {
@@ -72,10 +62,10 @@ export class PlaybackController {
 
 	async resume(speed: number): Promise<void> {
 		if (this._state === "paused") {
+			this._speed = speed;
 			this.engine.setSpeed(speed);
 			this.engine.resume();
 			this.setState("playing");
-			// Wake up the loop if it's waiting on the resume promise
 			this.resumeResolve?.();
 			this.resumeResolve = null;
 		}
@@ -89,14 +79,12 @@ export class PlaybackController {
 		}
 	}
 
-	/** Explicit stop — does NOT fire onComplete (that's for natural end only). */
 	stop(): void {
-		this.generation++; // kill any running loop
+		this.generation++;
 		this.engine.stop();
 		this.highlighter.clear();
 		this.currentIndex = -1;
 		this._sentences = [];
-		// Wake up any paused wait so the loop can exit
 		this.resumeResolve?.();
 		this.resumeResolve = null;
 		this.setState("idle");
@@ -108,10 +96,11 @@ export class PlaybackController {
 			this.generation++;
 			this.engine.stop();
 			this.currentIndex++;
+			this._speed = speed;
 			this.resumeResolve?.();
 			this.resumeResolve = null;
 			this.setState("playing");
-			await this.runLoop(speed);
+			await this.runLoop();
 		}
 	}
 
@@ -121,10 +110,11 @@ export class PlaybackController {
 			this.generation++;
 			this.engine.stop();
 			this.currentIndex--;
+			this._speed = speed;
 			this.resumeResolve?.();
 			this.resumeResolve = null;
 			this.setState("playing");
-			await this.runLoop(speed);
+			await this.runLoop();
 		}
 	}
 
@@ -133,13 +123,16 @@ export class PlaybackController {
 		this.generation++;
 		this.engine.stop();
 		this.currentIndex = index;
+		this._speed = speed;
 		this.resumeResolve?.();
 		this.resumeResolve = null;
 		this.setState("playing");
-		await this.runLoop(speed);
+		await this.runLoop();
 	}
 
+	/** Update speed — applies to the NEXT sentence and all subsequent ones. */
 	setSpeed(speed: number): void {
+		this._speed = speed;
 		this.engine.setSpeed(speed);
 	}
 
@@ -149,7 +142,7 @@ export class PlaybackController {
 
 	// --- Internal ---
 
-	private async runLoop(speed: number): Promise<void> {
+	private async runLoop(): Promise<void> {
 		const gen = ++this.generation;
 
 		while (
@@ -163,15 +156,14 @@ export class PlaybackController {
 			this.preBufferNext();
 
 			try {
-				await this.engine.speak(sentence.text, speed);
+				// Read speed dynamically so mid-playback changes apply
+				await this.engine.speak(sentence.text, this._speed);
 			} catch (err) {
 				console.error("TTS speak error:", err);
 			}
 
 			if (gen !== this.generation) return;
 
-			// If paused (handles Android where engine.pause() is a no-op
-			// and the speech finishes while "paused"), wait for resume.
 			if (this._state === "paused") {
 				await new Promise<void>((resolve) => {
 					this.resumeResolve = resolve;
@@ -182,7 +174,6 @@ export class PlaybackController {
 			this.currentIndex++;
 		}
 
-		// Reached the end naturally
 		if (gen === this.generation) {
 			this.highlighter.clear();
 			this.setState("idle");
