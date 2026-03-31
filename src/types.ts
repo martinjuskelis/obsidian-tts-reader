@@ -1,5 +1,5 @@
 export interface TTSReaderSettings {
-	backend: "webspeech" | "piper" | "deepinfra";
+	backend: "webspeech" | "deepinfra";
 	webSpeechVoice: string;
 	speed: number;
 	deepinfraApiKey: string;
@@ -8,7 +8,6 @@ export interface TTSReaderSettings {
 	skipFrontmatter: boolean;
 	autoScroll: boolean;
 	deepinfraVoice: string;
-	piperVoice: string;
 	debug: boolean;
 }
 
@@ -19,7 +18,6 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	deepinfraApiKey: "",
 	deepinfraModel: "hexgrad/Kokoro-82M",
 	deepinfraVoice: "af_heart",
-	piperVoice: "en_US-hfc_male-medium",
 	skipCodeBlocks: true,
 	skipFrontmatter: true,
 	autoScroll: true,
