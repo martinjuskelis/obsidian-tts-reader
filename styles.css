@@ -2,13 +2,11 @@
    TTS Reader – Sentence Highlighting
    ============================================================ */
 
-/* CSS Custom Highlight API (preferred, no DOM modification) */
 ::highlight(tts-reader-current) {
 	background-color: var(--tts-highlight-bg, rgba(255, 213, 79, 0.4));
 	color: inherit;
 }
 
-/* Mark-based fallback highlight */
 mark.tts-reader-highlight {
 	background-color: var(--tts-highlight-bg, rgba(255, 213, 79, 0.4));
 	color: inherit;
@@ -22,30 +20,19 @@ mark.tts-reader-highlight {
 
 .tts-reader-toolbar {
 	position: sticky;
+	bottom: 0;
 	left: 0;
 	right: 0;
 	z-index: var(--layer-popover);
 	background-color: var(--background-secondary);
+	border-top: 1px solid var(--background-modifier-border);
 	padding: 4px 10px;
 	display: flex;
 	align-items: center;
-	justify-content: flex-start;
+	justify-content: center;
+	box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
 	user-select: none;
 	-webkit-user-select: none;
-}
-
-/* Bottom variant (default) */
-.tts-reader-toolbar-bottom {
-	bottom: 0;
-	border-top: 1px solid var(--background-modifier-border);
-	box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
-}
-
-/* Top variant */
-.tts-reader-toolbar-top {
-	top: 0;
-	border-bottom: 1px solid var(--background-modifier-border);
-	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .tts-reader-controls {
@@ -55,7 +42,6 @@ mark.tts-reader-highlight {
 	flex-wrap: nowrap;
 }
 
-/* Buttons — Lucide SVG icons */
 .tts-reader-btn {
 	display: inline-flex;
 	align-items: center;
@@ -95,7 +81,6 @@ mark.tts-reader-highlight {
 	background: transparent;
 }
 
-/* Separator */
 .tts-reader-separator {
 	width: 1px;
 	height: 20px;
@@ -104,7 +89,6 @@ mark.tts-reader-highlight {
 	flex-shrink: 0;
 }
 
-/* Speed display */
 .tts-reader-speed {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
@@ -113,7 +97,6 @@ mark.tts-reader-highlight {
 	font-variant-numeric: tabular-nums;
 }
 
-/* Progress display */
 .tts-reader-progress {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
@@ -123,7 +106,7 @@ mark.tts-reader-highlight {
 }
 
 /* ============================================================
-   Dark theme adjustments
+   Dark theme
    ============================================================ */
 
 .theme-dark {
@@ -131,23 +114,13 @@ mark.tts-reader-highlight {
 }
 
 /* ============================================================
-   Mobile-specific tweaks
+   Mobile
    ============================================================ */
 
 .is-mobile .tts-reader-toolbar {
 	padding: 4px 6px;
-}
-
-/* On mobile bottom, extend background below to cover Obsidian's nav area */
-.is-mobile .tts-reader-toolbar-bottom {
-	/* 2x toolbar height of padding below, filled with toolbar bg color */
+	/* Extra padding below so the toolbar bg covers Obsidian's nav bar area */
 	padding-bottom: calc(80px + env(safe-area-inset-bottom));
-}
-
-/* On mobile top, offset below Obsidian's header bar */
-.is-mobile .tts-reader-toolbar-top {
-	margin-top: 48px;
-	padding-top: max(4px, env(safe-area-inset-top));
 }
 
 .is-mobile .tts-reader-btn {

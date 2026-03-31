@@ -66,6 +66,9 @@ export default class TTSReaderPlugin extends Plugin {
 	}
 
 	async saveSettings(): Promise<void> {
+		// Any settings change stops active playback to avoid stale state
+		// (e.g., switching voice while reading would cause overlapping audio)
+		this.stopPlayback();
 		await this.saveData(this.settings);
 	}
 
@@ -211,11 +214,7 @@ export default class TTSReaderPlugin extends Plugin {
 			this.settings.autoScroll,
 		);
 
-		this.toolbar = new Toolbar(
-			view.contentEl,
-			this.settings.speed,
-			this.settings.toolbarPosition,
-		);
+		this.toolbar = new Toolbar(view.contentEl, this.settings.speed);
 		this.wireToolbar();
 		this.wireController();
 		if (previewEl) this.setupClickToJump(previewEl);
@@ -258,6 +257,7 @@ export default class TTSReaderPlugin extends Plugin {
 				);
 			}
 			this.deepInfraEngine.debug = this.settings.debug;
+			this.deepInfraEngine.voice = this.settings.deepinfraVoice;
 			return this.deepInfraEngine;
 		}
 

@@ -7,7 +7,7 @@ export interface TTSReaderSettings {
 	skipCodeBlocks: boolean;
 	skipFrontmatter: boolean;
 	autoScroll: boolean;
-	toolbarPosition: "bottom" | "top";
+	deepinfraVoice: string;
 	debug: boolean;
 }
 
@@ -17,10 +17,10 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	speed: 1.0,
 	deepinfraApiKey: "",
 	deepinfraModel: "hexgrad/Kokoro-82M",
+	deepinfraVoice: "af_heart",
 	skipCodeBlocks: true,
 	skipFrontmatter: true,
 	autoScroll: true,
-	toolbarPosition: "bottom",
 	debug: false,
 };
 

@@ -1,7 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type TTSReaderPlugin from "./main";
 import {
-	DEFAULT_SETTINGS,
 	DEEPINFRA_MODELS,
 	SPEED_MIN,
 	SPEED_MAX,
@@ -31,7 +30,9 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					.addOption("deepinfra", "DeepInfra (cloud, better quality)")
 					.setValue(this.plugin.settings.backend)
 					.onChange(async (v) => {
-						this.plugin.settings.backend = v as "webspeech" | "deepinfra";
+						this.plugin.settings.backend = v as
+							| "webspeech"
+							| "deepinfra";
 						await this.plugin.saveSettings();
 						this.display();
 					}),
@@ -55,21 +56,20 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 		// --- Web Speech voice ---
 		if (this.plugin.settings.backend === "webspeech") {
 			const voices = await this.getWebSpeechVoices();
-			const voiceSetting = new Setting(containerEl)
+			new Setting(containerEl)
 				.setName("Voice")
-				.setDesc("Select a voice from your system's available voices.");
-
-			voiceSetting.addDropdown((d) => {
-				d.addOption("", "System default");
-				for (const v of voices) {
-					d.addOption(v.id, `${v.name} (${v.lang})`);
-				}
-				d.setValue(this.plugin.settings.webSpeechVoice);
-				d.onChange(async (val) => {
-					this.plugin.settings.webSpeechVoice = val;
-					await this.plugin.saveSettings();
+				.setDesc("Select a voice from your system's available voices.")
+				.addDropdown((d) => {
+					d.addOption("", "System default");
+					for (const v of voices) {
+						d.addOption(v.id, `${v.name} (${v.lang})`);
+					}
+					d.setValue(this.plugin.settings.webSpeechVoice);
+					d.onChange(async (val) => {
+						this.plugin.settings.webSpeechVoice = val;
+						await this.plugin.saveSettings();
+					});
 				});
-			});
 		}
 
 		// --- DeepInfra settings ---
@@ -111,7 +111,6 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					});
 				});
 
-			// Show custom model text field if "Custom" is selected or model isn't in presets
 			const isCustom = !DEEPINFRA_MODELS.some(
 				(m) => m.id === this.plugin.settings.deepinfraModel,
 			);
@@ -131,6 +130,21 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 							}),
 					);
 			}
+
+			new Setting(containerEl)
+				.setName("Voice")
+				.setDesc(
+					"Voice preset name. Kokoro voices: af_heart, af_bella, af_nicole, af_sarah, af_sky, am_adam, am_michael, bf_emma, bf_isabella, bm_george, bm_lewis",
+				)
+				.addText((t) =>
+					t
+						.setPlaceholder("af_heart")
+						.setValue(this.plugin.settings.deepinfraVoice)
+						.onChange(async (v) => {
+							this.plugin.settings.deepinfraVoice = v;
+							await this.plugin.saveSettings();
+						}),
+				);
 		}
 
 		// --- Text extraction ---
@@ -177,31 +191,13 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(containerEl)
-			.setName("Toolbar position")
-			.setDesc(
-				"Where the playback toolbar appears. Use Top on mobile to avoid Obsidian's toolbar covering it.",
-			)
-			.addDropdown((d) =>
-				d
-					.addOption("bottom", "Bottom")
-					.addOption("top", "Top")
-					.setValue(this.plugin.settings.toolbarPosition)
-					.onChange(async (v) => {
-						this.plugin.settings.toolbarPosition = v as
-							| "bottom"
-							| "top";
-						await this.plugin.saveSettings();
-					}),
-			);
-
 		// --- Advanced ---
 		new Setting(containerEl).setName("Advanced").setHeading();
 
 		new Setting(containerEl)
 			.setName("Debug mode")
 			.setDesc(
-				"Show detailed diagnostic notices for troubleshooting TTS issues. Check the developer console (Ctrl+Shift+I) for full details.",
+				"Show detailed diagnostic notices for troubleshooting TTS issues.",
 			)
 			.addToggle((t) =>
 				t
@@ -218,15 +214,11 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 		let voices = speechSynthesis.getVoices();
 		if (voices.length === 0) {
-			// Android/some browsers: voices load async
 			voices = await new Promise<SpeechSynthesisVoice[]>((resolve) => {
-				const onVoices = () => {
-					resolve(speechSynthesis.getVoices());
-				};
+				const onVoices = () => resolve(speechSynthesis.getVoices());
 				speechSynthesis.addEventListener("voiceschanged", onVoices, {
 					once: true,
 				});
-				// Timeout fallback in case event never fires
 				setTimeout(() => resolve(speechSynthesis.getVoices()), 1000);
 			});
 		}
