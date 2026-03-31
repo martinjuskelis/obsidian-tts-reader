@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type TTSReaderPlugin from "./main";
+import { PIPER_VOICES } from "./piper";
 import {
 	DEEPINFRA_MODELS,
 	SPEED_MIN,
@@ -27,7 +28,8 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 			.addDropdown((d) =>
 				d
 					.addOption("webspeech", "Web Speech API (free, built-in)")
-					.addOption("deepinfra", "DeepInfra (cloud, better quality)")
+					.addOption("piper", "Piper (local, runs in browser)")
+					.addOption("deepinfra", "DeepInfra (cloud, API key needed)")
 					.setValue(this.plugin.settings.backend)
 					.onChange(async (v) => {
 						this.plugin.stopPlaybackPublic();
@@ -69,6 +71,26 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					d.onChange(async (val) => {
 						this.plugin.stopPlaybackPublic();
 						this.plugin.settings.webSpeechVoice = val;
+						await this.plugin.saveSettings();
+					});
+				});
+		}
+
+		// --- Piper settings ---
+		if (this.plugin.settings.backend === "piper") {
+			new Setting(containerEl)
+				.setName("Voice")
+				.setDesc(
+					"Local Piper voice. The model (~63 MB) is downloaded on first use.",
+				)
+				.addDropdown((d) => {
+					for (const v of PIPER_VOICES) {
+						d.addOption(v.id, v.name);
+					}
+					d.setValue(this.plugin.settings.piperVoice);
+					d.onChange(async (val) => {
+						this.plugin.stopPlaybackPublic();
+						this.plugin.settings.piperVoice = val;
 						await this.plugin.saveSettings();
 					});
 				});

@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tts-reader",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "description": "TTS Reader for Obsidian",
   "main": "main.js",
   "scripts": {
@@ -14,5 +14,8 @@
     "obsidian": "^1.5.0",
     "tslib": "^2.6.0",
     "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@mintplex-labs/piper-tts-web": "^1.0.4"
   }
 }

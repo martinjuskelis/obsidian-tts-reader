@@ -11,6 +11,7 @@ import { TTSReaderSettingTab } from "./settings";
 import { extractSentences } from "./text-extractor";
 import { WebSpeechEngine } from "./web-speech";
 import { DeepInfraEngine } from "./deepinfra";
+import { PiperEngine } from "./piper";
 import { Highlighter } from "./highlighter";
 import { PlaybackController } from "./playback";
 import { Toolbar } from "./toolbar";
@@ -21,6 +22,7 @@ export default class TTSReaderPlugin extends Plugin {
 	private toolbar: Toolbar | null = null;
 	private webSpeechEngine: WebSpeechEngine | null = null;
 	private deepInfraEngine: DeepInfraEngine | null = null;
+	private piperEngine: PiperEngine | null = null;
 	private highlighter: Highlighter | null = null;
 	private clickHandler: ((e: MouseEvent) => void) | null = null;
 	private clickTarget: HTMLElement | null = null;
@@ -28,6 +30,16 @@ export default class TTSReaderPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+
+		// Auto-switch to Piper on platforms where Web Speech is unavailable
+		if (
+			this.settings.backend === "webspeech" &&
+			typeof speechSynthesis === "undefined"
+		) {
+			this.settings.backend = "piper";
+			await this.saveSettings();
+		}
+
 		this.addSettingTab(new TTSReaderSettingTab(this.app, this));
 		this.registerCommands();
 
@@ -249,6 +261,15 @@ export default class TTSReaderPlugin extends Plugin {
 	}
 
 	private async getEngine(): Promise<TTSEngine | null> {
+		if (this.settings.backend === "piper") {
+			if (!this.piperEngine) {
+				this.piperEngine = new PiperEngine();
+			}
+			this.piperEngine.setVoice(this.settings.piperVoice);
+			this.piperEngine.debug = this.settings.debug;
+			return this.piperEngine;
+		}
+
 		if (this.settings.backend === "deepinfra") {
 			if (!this.settings.deepinfraApiKey) {
 				new Notice(
