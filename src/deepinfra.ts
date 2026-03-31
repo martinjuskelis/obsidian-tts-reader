@@ -1,14 +1,11 @@
 import { requestUrl } from "obsidian";
 import type { TTSEngine, VoiceOption } from "./types";
 
-const API_BASE = "https://api.deepinfra.com/v1/inference";
-
 /**
- * TTS engine backed by DeepInfra's hosted TTS models.
+ * TTS engine backed by DeepInfra's OpenAI-compatible TTS endpoint.
  *
- * Uses an AbortController so that stop()/skip() reliably resolves
- * the pending speak() promise (HTMLAudioElement doesn't fire onended
- * when you pause+remove it).
+ * All models use POST /v1/audio/speech with {model, input, voice}
+ * and return direct audio/wav binary. No JSON parsing needed.
  */
 export class DeepInfraEngine implements TTSEngine {
 	private audio: HTMLAudioElement | null = null;
@@ -19,7 +16,6 @@ export class DeepInfraEngine implements TTSEngine {
 	private ac: AbortController | null = null;
 	debug = false;
 	voice = "af_heart";
-	voiceParam = "preset_voice";
 
 	/** Pre-fetched audio blobs keyed by sentence text */
 	private preBufferCache = new Map<string, Blob>();
@@ -42,11 +38,10 @@ export class DeepInfraEngine implements TTSEngine {
 		}
 	}
 
-	/** Queue sentences for pre-buffering. */
 	preBuffer(sentences: string[]): void {
 		for (const text of sentences) {
 			if (!this.preBufferCache.has(text)) {
-				this.fetchAudioBlob(text).then((blob) => {
+				this.fetchAudio(text).then((blob) => {
 					if (blob) this.preBufferCache.set(text, blob);
 				});
 			}
@@ -58,12 +53,11 @@ export class DeepInfraEngine implements TTSEngine {
 		const ac = new AbortController();
 		this.ac = ac;
 
-		// Use pre-buffered audio if available
 		let blob: Blob | null = this.preBufferCache.get(text) ?? null;
 		this.preBufferCache.delete(text);
 
 		if (!blob) {
-			blob = await this.fetchAudioBlob(text);
+			blob = await this.fetchAudio(text);
 		}
 
 		if (ac.signal.aborted) return;
@@ -94,6 +88,7 @@ export class DeepInfraEngine implements TTSEngine {
 		this.ac = null;
 		if (this.audio) {
 			this.audio.pause();
+			this.audio.src = "";
 			this.audio = null;
 		}
 		this._speaking = false;
@@ -113,140 +108,31 @@ export class DeepInfraEngine implements TTSEngine {
 
 	// --- Private ---
 
-	private async fetchAudioBlob(text: string): Promise<Blob | null> {
+	private async fetchAudio(text: string): Promise<Blob | null> {
 		if (!this.apiKey) return null;
 
 		try {
-			const payload: Record<string, unknown> = {
-				text,
-			};
-
-			// Use the model-specific voice parameter name
-			if (this.voice && this.voiceParam) {
-				payload[this.voiceParam] = this.voice;
-			}
-
 			const response = await requestUrl({
-				url: `${API_BASE}/${this.model}`,
+				url: "https://api.deepinfra.com/v1/audio/speech",
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${this.apiKey}`,
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify(payload),
+				body: JSON.stringify({
+					model: this.model,
+					input: text,
+					voice: this.voice,
+				}),
 			});
 
+			// All models return direct audio/wav via this endpoint
 			const contentType =
-				response.headers["content-type"] || "application/json";
-
-			// Direct binary audio response
-			if (contentType.includes("audio/")) {
-				return new Blob([response.arrayBuffer], { type: contentType });
-			}
-
-			// JSON response — try multiple fields where audio data might live
-			let json: Record<string, unknown>;
-			try {
-				json = response.json;
-			} catch {
-				// Not valid JSON — treat entire response as audio
-				return new Blob([response.arrayBuffer], { type: "audio/wav" });
-			}
-
-			// Check string fields that might contain audio data
-			const audioStr =
-				typeof json.audio === "string"
-					? json.audio
-					: typeof json.output === "string"
-						? json.output
-						: null;
-
-			if (audioStr) {
-				return this.decodeAudioString(
-					audioStr,
-					(json.content_type as string) || "audio/wav",
-				);
-			}
-
-			// URL to audio file
-			if (typeof json.audio_url === "string") {
-				const audioResp = await requestUrl({
-					url: json.audio_url as string,
-				});
-				return new Blob([audioResp.arrayBuffer], { type: "audio/mp3" });
-			}
-
-			if (typeof json.output_url === "string") {
-				const audioResp = await requestUrl({
-					url: json.output_url as string,
-				});
-				return new Blob([audioResp.arrayBuffer], { type: "audio/mp3" });
-			}
-
-			if (this.debug) {
-				console.error(
-					"DeepInfra TTS: unexpected response format.",
-					"Content-Type:", contentType,
-					"Response keys:", Object.keys(json),
-					"Response (first 500 chars):", JSON.stringify(json).substring(0, 500),
-				);
-			}
-			return null;
+				response.headers["content-type"] || "audio/wav";
+			return new Blob([response.arrayBuffer], { type: contentType });
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			console.error("DeepInfra TTS fetch failed:", msg);
-			// Don't show Notice here — let the playback controller
-			// handle error counting and stop after repeated failures.
-			return null;
-		}
-	}
-
-	/**
-	 * Decode an audio string which may be:
-	 * - A data URI: data:audio/wav;base64,AAAA...
-	 * - Raw base64: AAAA...
-	 * - A URL: https://...
-	 */
-	private async decodeAudioString(
-		str: string,
-		fallbackType: string,
-	): Promise<Blob | null> {
-		// Data URI (e.g., data:audio/wav;base64,...)
-		const dataUriMatch = str.match(
-			/^data:([^;]+);base64,(.+)$/s,
-		);
-		if (dataUriMatch) {
-			const mime = dataUriMatch[1];
-			const b64 = dataUriMatch[2];
-			return this.base64ToBlob(b64, mime);
-		}
-
-		// URL
-		if (str.startsWith("http://") || str.startsWith("https://")) {
-			const resp = await requestUrl({ url: str });
-			return new Blob([resp.arrayBuffer], { type: "audio/mp3" });
-		}
-
-		// Raw base64
-		return this.base64ToBlob(str, fallbackType);
-	}
-
-	private base64ToBlob(b64: string, mime: string): Blob | null {
-		try {
-			const binaryStr = atob(b64);
-			const bytes = new Uint8Array(binaryStr.length);
-			for (let i = 0; i < binaryStr.length; i++) {
-				bytes[i] = binaryStr.charCodeAt(i);
-			}
-			return new Blob([bytes], { type: mime });
-		} catch (e) {
-			console.error("Failed to decode base64 audio:", e);
-			if (this.debug) {
-				console.error(
-					"Audio string preview (first 200 chars):",
-					b64.substring(0, 200),
-				);
-			}
 			return null;
 		}
 	}
@@ -272,7 +158,6 @@ export class DeepInfraEngine implements TTSEngine {
 				resolve();
 			};
 
-			// Abort signal: resolve immediately when stop/skip fires
 			signal.addEventListener("abort", finish, { once: true });
 
 			const audio = new Audio(url);
@@ -286,6 +171,7 @@ export class DeepInfraEngine implements TTSEngine {
 			audio.onerror = () => {
 				if (settled) return;
 				settled = true;
+				audio.src = "";
 				URL.revokeObjectURL(url);
 				this._speaking = false;
 				this._paused = false;

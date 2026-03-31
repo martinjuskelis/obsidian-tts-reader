@@ -101,21 +101,6 @@ export const DEEPINFRA_MODELS: DeepInfraModelDef[] = [
 		],
 	},
 	{
-		id: "Qwen/Qwen3-TTS-VoiceDesign",
-		name: "Qwen3 VoiceDesign \u2014 describe any voice, ~$20/M chars",
-		voiceParam: "voice_description",
-		voices: [
-			{
-				id: "A calm, clear adult male voice with a neutral American accent",
-				name: "Calm male (example)",
-			},
-			{
-				id: "A warm, friendly young female voice with a British accent",
-				name: "Warm female (example)",
-			},
-		],
-	},
-	{
 		id: "ResembleAI/chatterbox",
 		name: "Chatterbox \u2014 emotion control, ~$1/M chars",
 		voiceParam: "voice",
@@ -126,11 +111,18 @@ export const DEEPINFRA_MODELS: DeepInfraModelDef[] = [
 		],
 	},
 	{
-		id: "deepinfra/tts",
-		name: "DeepInfra TTS \u2014 built-in, ~$5/M chars",
+		id: "Qwen/Qwen3-TTS-VoiceDesign",
+		name: "Qwen3 VoiceDesign \u2014 describe any voice, ~$20/M chars",
 		voiceParam: "voice",
 		voices: [
-			{ id: "luna", name: "Luna (F)" },
+			{
+				id: "A calm, clear adult male voice with a neutral American accent",
+				name: "Calm male (example)",
+			},
+			{
+				id: "A warm, friendly young female voice with a British accent",
+				name: "Warm female (example)",
+			},
 		],
 	},
 ];
