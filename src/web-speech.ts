@@ -20,9 +20,6 @@ export class WebSpeechEngine implements TTSEngine {
 	private resolveSpeak: (() => void) | null = null;
 	private rejectSpeak: ((reason: unknown) => void) | null = null;
 
-	/** Chrome bug workaround: periodic pause/resume keeps long text alive. */
-	private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
-
 	get speaking(): boolean {
 		return this._speaking;
 	}
@@ -43,7 +40,6 @@ export class WebSpeechEngine implements TTSEngine {
 	async speak(text: string, speed: number): Promise<void> {
 		// Cancel any in-progress utterance (also works around Chrome bug)
 		speechSynthesis.cancel();
-		this.clearKeepAlive();
 
 		return new Promise<void>((resolve, reject) => {
 			this.resolveSpeak = resolve;
@@ -62,7 +58,6 @@ export class WebSpeechEngine implements TTSEngine {
 			}
 
 			utterance.onend = () => {
-				this.clearKeepAlive();
 				this._speaking = false;
 				this._paused = false;
 				this.resolveSpeak?.();
@@ -71,7 +66,6 @@ export class WebSpeechEngine implements TTSEngine {
 			};
 
 			utterance.onerror = (event) => {
-				this.clearKeepAlive();
 				this._speaking = false;
 				this._paused = false;
 				// "interrupted" and "canceled" are normal when we call stop/skip
@@ -93,14 +87,6 @@ export class WebSpeechEngine implements TTSEngine {
 			this._speaking = true;
 			this._paused = false;
 			speechSynthesis.speak(utterance);
-
-			// Chrome/Electron: keep the synthesis alive by periodic pause/resume
-			this.keepAliveTimer = setInterval(() => {
-				if (speechSynthesis.speaking && !speechSynthesis.paused) {
-					speechSynthesis.pause();
-					speechSynthesis.resume();
-				}
-			}, 10_000);
 		});
 	}
 
@@ -119,7 +105,6 @@ export class WebSpeechEngine implements TTSEngine {
 	}
 
 	stop(): void {
-		this.clearKeepAlive();
 		speechSynthesis.cancel();
 		this._speaking = false;
 		this._paused = false;
@@ -145,12 +130,5 @@ export class WebSpeechEngine implements TTSEngine {
 			name: v.name,
 			lang: v.lang,
 		}));
-	}
-
-	private clearKeepAlive(): void {
-		if (this.keepAliveTimer !== null) {
-			clearInterval(this.keepAliveTimer);
-			this.keepAliveTimer = null;
-		}
 	}
 }
