@@ -138,14 +138,15 @@ mark.tts-reader-highlight {
 	padding: 4px 6px;
 }
 
-/* On mobile bottom, offset above Obsidian's navigation bar */
+/* On mobile bottom, extend background below to cover Obsidian's nav area */
 .is-mobile .tts-reader-toolbar-bottom {
-	padding-bottom: max(4px, env(safe-area-inset-bottom));
-	margin-bottom: 48px;
+	/* 2x toolbar height of padding below, filled with toolbar bg color */
+	padding-bottom: calc(80px + env(safe-area-inset-bottom));
 }
 
-/* On mobile top, offset below Obsidian's header */
+/* On mobile top, offset below Obsidian's header bar */
 .is-mobile .tts-reader-toolbar-top {
+	margin-top: 48px;
 	padding-top: max(4px, env(safe-area-inset-top));
 }
 

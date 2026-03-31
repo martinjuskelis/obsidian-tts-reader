@@ -154,26 +154,19 @@ export class DeepInfraEngine implements TTSEngine {
 				return new Blob([response.arrayBuffer], { type: "audio/wav" });
 			}
 
-			// base64 audio in "audio" field
-			if (typeof json.audio === "string") {
-				const binaryStr = atob(json.audio);
-				const bytes = new Uint8Array(binaryStr.length);
-				for (let i = 0; i < binaryStr.length; i++) {
-					bytes[i] = binaryStr.charCodeAt(i);
-				}
-				return new Blob([bytes], {
-					type: (json.content_type as string) || "audio/wav",
-				});
-			}
+			// Check string fields that might contain audio data
+			const audioStr =
+				typeof json.audio === "string"
+					? json.audio
+					: typeof json.output === "string"
+						? json.output
+						: null;
 
-			// base64 audio in "output" field (some models use this)
-			if (typeof json.output === "string") {
-				const binaryStr = atob(json.output);
-				const bytes = new Uint8Array(binaryStr.length);
-				for (let i = 0; i < binaryStr.length; i++) {
-					bytes[i] = binaryStr.charCodeAt(i);
-				}
-				return new Blob([bytes], { type: "audio/wav" });
+			if (audioStr) {
+				return this.decodeAudioString(
+					audioStr,
+					(json.content_type as string) || "audio/wav",
+				);
 			}
 
 			// URL to audio file
@@ -206,6 +199,56 @@ export class DeepInfraEngine implements TTSEngine {
 			console.error("DeepInfra TTS fetch failed:", msg);
 			// Always show API errors (auth failures, network, etc.)
 			new Notice(`TTS Reader: DeepInfra error: ${msg}`);
+			return null;
+		}
+	}
+
+	/**
+	 * Decode an audio string which may be:
+	 * - A data URI: data:audio/wav;base64,AAAA...
+	 * - Raw base64: AAAA...
+	 * - A URL: https://...
+	 */
+	private async decodeAudioString(
+		str: string,
+		fallbackType: string,
+	): Promise<Blob | null> {
+		// Data URI (e.g., data:audio/wav;base64,...)
+		const dataUriMatch = str.match(
+			/^data:([^;]+);base64,(.+)$/s,
+		);
+		if (dataUriMatch) {
+			const mime = dataUriMatch[1];
+			const b64 = dataUriMatch[2];
+			return this.base64ToBlob(b64, mime);
+		}
+
+		// URL
+		if (str.startsWith("http://") || str.startsWith("https://")) {
+			const resp = await requestUrl({ url: str });
+			return new Blob([resp.arrayBuffer], { type: "audio/mp3" });
+		}
+
+		// Raw base64
+		return this.base64ToBlob(str, fallbackType);
+	}
+
+	private base64ToBlob(b64: string, mime: string): Blob | null {
+		try {
+			const binaryStr = atob(b64);
+			const bytes = new Uint8Array(binaryStr.length);
+			for (let i = 0; i < binaryStr.length; i++) {
+				bytes[i] = binaryStr.charCodeAt(i);
+			}
+			return new Blob([bytes], { type: mime });
+		} catch (e) {
+			console.error("Failed to decode base64 audio:", e);
+			if (this.debug) {
+				console.error(
+					"Audio string preview (first 200 chars):",
+					b64.substring(0, 200),
+				);
+			}
 			return null;
 		}
 	}
