@@ -25,6 +25,7 @@ export default class TTSReaderPlugin extends Plugin {
 	private clickHandler: ((e: MouseEvent) => void) | null = null;
 	private clickTarget: HTMLElement | null = null;
 	private playbackLeaf: WorkspaceLeaf | null = null;
+	private playbackFilePath: string | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -46,15 +47,17 @@ export default class TTSReaderPlugin extends Plugin {
 			}
 		});
 
-		// Only stop playback when the user opens a different markdown document.
-		// Clicking the file explorer, sidebar, ribbon, or settings does NOT stop.
+		// Only stop playback when the user opens a DIFFERENT FILE in the
+		// original pane. Clicking other panels, sidebars, extensions,
+		// or even other MarkdownView panes does NOT stop playback.
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => {
-				if (!this.playbackLeaf || !leaf) return;
-				if (
-					leaf !== this.playbackLeaf &&
-					leaf.view instanceof MarkdownView
-				) {
+				if (!this.playbackLeaf || !this.playbackFilePath) return;
+				// Only care if the original playback pane now shows a different file
+				const currentFile = (
+					this.playbackLeaf.view as MarkdownView
+				)?.file?.path;
+				if (currentFile && currentFile !== this.playbackFilePath) {
 					this.stopPlayback();
 				}
 			}),
@@ -225,6 +228,7 @@ export default class TTSReaderPlugin extends Plugin {
 		);
 
 		this.playbackLeaf = view.leaf;
+		this.playbackFilePath = view.file?.path ?? null;
 		this.toolbar = new Toolbar(view.contentEl, this.settings.speed);
 		this.wireToolbar();
 		this.wireController();
@@ -236,6 +240,7 @@ export default class TTSReaderPlugin extends Plugin {
 
 	private stopPlayback(): void {
 		this.playbackLeaf = null;
+		this.playbackFilePath = null;
 		this.teardownClickToJump();
 		if (this.controller) {
 			this.controller.stop();
