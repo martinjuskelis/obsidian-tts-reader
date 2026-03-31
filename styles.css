@@ -38,7 +38,7 @@ mark.tts-reader-highlight {
 	padding: 6px 12px;
 	display: flex;
 	align-items: center;
-	justify-content: center;
+	justify-content: flex-start;
 	box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
 	user-select: none;
 	-webkit-user-select: none;

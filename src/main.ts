@@ -268,7 +268,15 @@ export default class TTSReaderPlugin extends Plugin {
 
 		this.controller.onComplete = () => {
 			new Notice("TTS Reader: Finished reading.");
-			this.stopPlayback();
+			// Clean up UI without calling stop() again (onComplete only
+			// fires from natural end, not from stop(), so no recursion).
+			this.teardownClickToJump();
+			if (this.toolbar) {
+				this.toolbar.destroy();
+				this.toolbar = null;
+			}
+			this.controller = null;
+			this.highlighter = null;
 		};
 	}
 

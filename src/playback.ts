@@ -6,8 +6,9 @@ import type { DeepInfraEngine } from "./deepinfra";
  * Orchestrates TTS playback: drives the engine sentence-by-sentence,
  * highlights the current sentence, and handles user controls.
  *
- * Uses a generation counter to prevent concurrent speakCurrent loops
- * when the user skips forward/backward while a sentence is playing.
+ * Uses a generation counter to prevent concurrent loops on skip/jump,
+ * and a resume promise to handle pause on platforms where
+ * speechSynthesis.pause() is a no-op (Android).
  */
 export class PlaybackController {
 	private _sentences: SentenceInfo[] = [];
@@ -17,9 +18,11 @@ export class PlaybackController {
 	private highlighter: Highlighter;
 	private autoScroll: boolean;
 	private generation = 0;
+	private resumeResolve: (() => void) | null = null;
 
 	onStateChange?: (state: PlaybackState) => void;
 	onSentenceChange?: (index: number, total: number) => void;
+	/** Fires only on natural completion (reached end of document). */
 	onComplete?: () => void;
 
 	constructor(
@@ -72,6 +75,9 @@ export class PlaybackController {
 			this.engine.setSpeed(speed);
 			this.engine.resume();
 			this.setState("playing");
+			// Wake up the loop if it's waiting on the resume promise
+			this.resumeResolve?.();
+			this.resumeResolve = null;
 		}
 	}
 
@@ -83,22 +89,27 @@ export class PlaybackController {
 		}
 	}
 
+	/** Explicit stop — does NOT fire onComplete (that's for natural end only). */
 	stop(): void {
 		this.generation++; // kill any running loop
 		this.engine.stop();
 		this.highlighter.clear();
 		this.currentIndex = -1;
 		this._sentences = [];
+		// Wake up any paused wait so the loop can exit
+		this.resumeResolve?.();
+		this.resumeResolve = null;
 		this.setState("idle");
-		this.onComplete?.();
 	}
 
 	async skipForward(speed: number): Promise<void> {
 		if (this._sentences.length === 0) return;
 		if (this.currentIndex < this._sentences.length - 1) {
-			this.generation++; // kill the current loop
+			this.generation++;
 			this.engine.stop();
 			this.currentIndex++;
+			this.resumeResolve?.();
+			this.resumeResolve = null;
 			this.setState("playing");
 			await this.runLoop(speed);
 		}
@@ -110,17 +121,20 @@ export class PlaybackController {
 			this.generation++;
 			this.engine.stop();
 			this.currentIndex--;
+			this.resumeResolve?.();
+			this.resumeResolve = null;
 			this.setState("playing");
 			await this.runLoop(speed);
 		}
 	}
 
-	/** Jump to an arbitrary sentence index (e.g. from click-to-read). */
 	async jumpTo(index: number, speed: number): Promise<void> {
 		if (index < 0 || index >= this._sentences.length) return;
 		this.generation++;
 		this.engine.stop();
 		this.currentIndex = index;
+		this.resumeResolve?.();
+		this.resumeResolve = null;
 		this.setState("playing");
 		await this.runLoop(speed);
 	}
@@ -135,10 +149,6 @@ export class PlaybackController {
 
 	// --- Internal ---
 
-	/**
-	 * Main playback loop. Captures the current generation so it can
-	 * bail out if a newer loop has been started (by skip/jump/stop).
-	 */
 	private async runLoop(speed: number): Promise<void> {
 		const gen = ++this.generation;
 
@@ -158,8 +168,16 @@ export class PlaybackController {
 				console.error("TTS speak error:", err);
 			}
 
-			// If a newer generation started (skip/stop), exit silently
 			if (gen !== this.generation) return;
+
+			// If paused (handles Android where engine.pause() is a no-op
+			// and the speech finishes while "paused"), wait for resume.
+			if (this._state === "paused") {
+				await new Promise<void>((resolve) => {
+					this.resumeResolve = resolve;
+				});
+				if (gen !== this.generation) return;
+			}
 
 			this.currentIndex++;
 		}
