@@ -150,11 +150,27 @@ export class Highlighter {
 		const runs = this.collectTextRuns();
 		if (runs.length === 0) return [];
 
-		const rawBuffer = runs.map((r) => r.node.textContent ?? "").join("");
+		// Build raw buffer. Insert a space between adjacent text nodes
+		// that aren't separated by whitespace (handles <br> elements
+		// which produce separate text nodes with no whitespace gap).
+		// Rebuild run offsets to account for inserted spaces.
+		let rawBuffer = "";
+		for (const run of runs) {
+			const t = run.node.textContent ?? "";
+			if (
+				rawBuffer.length > 0 &&
+				t.length > 0 &&
+				!/\s$/.test(rawBuffer) &&
+				!/^\s/.test(t)
+			) {
+				rawBuffer += " ";
+			}
+			run.bufferStart = rawBuffer.length;
+			rawBuffer += t;
+		}
 
-		// Normalize: collapse newlines/whitespace to single spaces so
-		// poetry (single \n → <br> → \n in DOM) matches the extracted
-		// text where \n was replaced with spaces.
+		// Normalize: collapse all whitespace runs to single spaces so
+		// poetry and other linebreak-heavy content matches the extracted text.
 		const buffer = rawBuffer.replace(/\s+/g, " ");
 
 		let idx = buffer.indexOf(text, this.lastSearchOffset);

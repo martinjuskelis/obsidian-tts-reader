@@ -141,8 +141,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 				(m) => m.id === this.plugin.settings.deepinfraModel,
 			);
 			if (modelDef && modelDef.voices.length > 0) {
-				const isVoiceDesign =
-					modelDef.voiceParam === "voice_description";
+				const isVoiceDesign = modelDef.freeTextVoice === true;
 				const voiceSetting = new Setting(containerEl)
 					.setName("Voice")
 					.setDesc(

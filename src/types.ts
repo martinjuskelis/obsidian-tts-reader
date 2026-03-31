@@ -31,6 +31,8 @@ export interface DeepInfraModelDef {
 	name: string;
 	/** API parameter name for the voice field */
 	voiceParam: string;
+	/** If true, the voice field is free-text (describe the voice) */
+	freeTextVoice?: boolean;
 	voices: { id: string; name: string }[];
 }
 
@@ -114,6 +116,7 @@ export const DEEPINFRA_MODELS: DeepInfraModelDef[] = [
 		id: "Qwen/Qwen3-TTS-VoiceDesign",
 		name: "Qwen3 VoiceDesign \u2014 describe any voice, ~$20/M chars",
 		voiceParam: "voice",
+		freeTextVoice: true,
 		voices: [
 			{
 				id: "A calm, clear adult male voice with a neutral American accent",
