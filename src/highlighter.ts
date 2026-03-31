@@ -150,7 +150,12 @@ export class Highlighter {
 		const runs = this.collectTextRuns();
 		if (runs.length === 0) return [];
 
-		const buffer = runs.map((r) => r.node.textContent ?? "").join("");
+		const rawBuffer = runs.map((r) => r.node.textContent ?? "").join("");
+
+		// Normalize: collapse newlines/whitespace to single spaces so
+		// poetry (single \n → <br> → \n in DOM) matches the extracted
+		// text where \n was replaced with spaces.
+		const buffer = rawBuffer.replace(/\s+/g, " ");
 
 		let idx = buffer.indexOf(text, this.lastSearchOffset);
 		if (idx === -1) {
@@ -158,8 +163,37 @@ export class Highlighter {
 		}
 		if (idx === -1) return [];
 
+		// Map normalized offset back to raw offset for Range creation.
+		// Walk the raw buffer counting characters, skipping collapsed whitespace.
+		const rawIdx = this.normalizedToRaw(rawBuffer, idx);
+		const rawEnd = this.normalizedToRaw(rawBuffer, idx + text.length);
+
 		this.lastSearchOffset = idx + text.length;
-		return this.createRanges(idx, text.length, runs);
+		return this.createRanges(rawIdx, rawEnd - rawIdx, runs);
+	}
+
+	/**
+	 * Convert an offset in the whitespace-normalized buffer back to
+	 * the corresponding offset in the raw (un-normalized) buffer.
+	 */
+	private normalizedToRaw(raw: string, normOffset: number): number {
+		let ni = 0;
+		let ri = 0;
+		let inWhitespace = false;
+		while (ri < raw.length && ni < normOffset) {
+			if (/\s/.test(raw[ri])) {
+				if (!inWhitespace) {
+					ni++; // one space in normalized
+					inWhitespace = true;
+				}
+				ri++;
+			} else {
+				ni++;
+				ri++;
+				inWhitespace = false;
+			}
+		}
+		return ri;
 	}
 
 	private collectTextRuns(): TextRun[] {

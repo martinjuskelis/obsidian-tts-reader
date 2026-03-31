@@ -1,4 +1,4 @@
-import { Notice, requestUrl } from "obsidian";
+import { requestUrl } from "obsidian";
 import type { TTSEngine, VoiceOption } from "./types";
 
 const API_BASE = "https://api.deepinfra.com/v1/inference";
@@ -69,10 +69,7 @@ export class DeepInfraEngine implements TTSEngine {
 		if (ac.signal.aborted) return;
 
 		if (!blob) {
-			if (this.debug) {
-				new Notice("TTS Reader: DeepInfra returned no audio. Check the developer console (Ctrl+Shift+I) for details.");
-			}
-			return;
+			throw new Error("DeepInfra returned no audio");
 		}
 
 		return this.playBlob(blob, speed, ac.signal);
@@ -193,14 +190,13 @@ export class DeepInfraEngine implements TTSEngine {
 					"Response keys:", Object.keys(json),
 					"Response (first 500 chars):", JSON.stringify(json).substring(0, 500),
 				);
-				new Notice("TTS Reader: Unexpected response from DeepInfra. See console for details.");
 			}
 			return null;
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			console.error("DeepInfra TTS fetch failed:", msg);
-			// Always show API errors (auth failures, network, etc.)
-			new Notice(`TTS Reader: DeepInfra error: ${msg}`);
+			// Don't show Notice here — let the playback controller
+			// handle error counting and stop after repeated failures.
 			return null;
 		}
 	}
