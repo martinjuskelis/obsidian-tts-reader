@@ -16,48 +16,52 @@ mark.tts-reader-highlight {
 	padding: 0;
 }
 
-/* Block-level indicator (subtle left border on active block) */
-.tts-reader-active-block {
-	border-left: 3px solid var(--interactive-accent);
-	padding-left: 8px;
-	transition: border-color 0.2s ease;
-}
-
 /* ============================================================
    TTS Reader – Floating Toolbar
    ============================================================ */
 
 .tts-reader-toolbar {
 	position: sticky;
-	bottom: 0;
 	left: 0;
 	right: 0;
 	z-index: var(--layer-popover);
 	background-color: var(--background-secondary);
-	border-top: 1px solid var(--background-modifier-border);
-	padding: 6px 12px;
+	padding: 4px 10px;
 	display: flex;
 	align-items: center;
 	justify-content: flex-start;
-	box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
 	user-select: none;
 	-webkit-user-select: none;
+}
+
+/* Bottom variant (default) */
+.tts-reader-toolbar-bottom {
+	bottom: 0;
+	border-top: 1px solid var(--background-modifier-border);
+	box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Top variant */
+.tts-reader-toolbar-top {
+	top: 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .tts-reader-controls {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: 2px;
 	flex-wrap: nowrap;
 }
 
-/* Buttons — 44px minimum tap target, Lucide SVG icons */
+/* Buttons — Lucide SVG icons */
 .tts-reader-btn {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	min-width: 44px;
-	min-height: 44px;
+	min-width: 36px;
+	min-height: 36px;
 	padding: 0;
 	border: none;
 	border-radius: var(--radius-s);
@@ -69,8 +73,8 @@ mark.tts-reader-highlight {
 }
 
 .tts-reader-btn .svg-icon {
-	width: 18px;
-	height: 18px;
+	width: 16px;
+	height: 16px;
 	stroke-width: 2px;
 }
 
@@ -94,26 +98,26 @@ mark.tts-reader-highlight {
 /* Separator */
 .tts-reader-separator {
 	width: 1px;
-	height: 24px;
+	height: 20px;
 	background-color: var(--background-modifier-border);
-	margin: 0 4px;
+	margin: 0 2px;
 	flex-shrink: 0;
 }
 
 /* Speed display */
 .tts-reader-speed {
-	font-size: var(--font-ui-small);
+	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
-	min-width: 40px;
+	min-width: 36px;
 	text-align: center;
 	font-variant-numeric: tabular-nums;
 }
 
 /* Progress display */
 .tts-reader-progress {
-	font-size: var(--font-ui-small);
+	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
-	min-width: 50px;
+	min-width: 44px;
 	text-align: center;
 	font-variant-numeric: tabular-nums;
 }
@@ -131,21 +135,35 @@ mark.tts-reader-highlight {
    ============================================================ */
 
 .is-mobile .tts-reader-toolbar {
-	padding: 8px 8px;
-	/* Account for safe area on phones with gesture navigation */
-	padding-bottom: max(8px, env(safe-area-inset-bottom));
+	padding: 4px 6px;
+}
+
+/* On mobile bottom, offset above Obsidian's navigation bar */
+.is-mobile .tts-reader-toolbar-bottom {
+	padding-bottom: max(4px, env(safe-area-inset-bottom));
+	margin-bottom: 48px;
+}
+
+/* On mobile top, offset below Obsidian's header */
+.is-mobile .tts-reader-toolbar-top {
+	padding-top: max(4px, env(safe-area-inset-top));
 }
 
 .is-mobile .tts-reader-btn {
-	min-width: 48px;
-	min-height: 48px;
+	min-width: 36px;
+	min-height: 36px;
 }
 
 .is-mobile .tts-reader-btn .svg-icon {
-	width: 20px;
-	height: 20px;
+	width: 16px;
+	height: 16px;
 }
 
 .is-mobile .tts-reader-controls {
-	gap: 2px;
+	gap: 1px;
+}
+
+.is-mobile .tts-reader-separator {
+	height: 16px;
+	margin: 0 1px;
 }

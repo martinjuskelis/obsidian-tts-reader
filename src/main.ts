@@ -193,7 +193,7 @@ export default class TTSReaderPlugin extends Plugin {
 			return;
 		}
 
-		const engine = this.getEngine();
+		const engine = await this.getEngine();
 		if (!engine) return;
 
 		const previewEl = view.contentEl.querySelector(
@@ -211,7 +211,11 @@ export default class TTSReaderPlugin extends Plugin {
 			this.settings.autoScroll,
 		);
 
-		this.toolbar = new Toolbar(view.contentEl, this.settings.speed);
+		this.toolbar = new Toolbar(
+			view.contentEl,
+			this.settings.speed,
+			this.settings.toolbarPosition,
+		);
 		this.wireToolbar();
 		this.wireController();
 		if (previewEl) this.setupClickToJump(previewEl);
@@ -233,7 +237,7 @@ export default class TTSReaderPlugin extends Plugin {
 		this.highlighter = null;
 	}
 
-	private getEngine(): TTSEngine | null {
+	private async getEngine(): Promise<TTSEngine | null> {
 		if (this.settings.backend === "deepinfra") {
 			if (!this.settings.deepinfraApiKey) {
 				new Notice(
@@ -253,6 +257,7 @@ export default class TTSReaderPlugin extends Plugin {
 					this.settings.deepinfraModel,
 				);
 			}
+			this.deepInfraEngine.debug = this.settings.debug;
 			return this.deepInfraEngine;
 		}
 
@@ -266,6 +271,23 @@ export default class TTSReaderPlugin extends Plugin {
 			this.webSpeechEngine = new WebSpeechEngine();
 		}
 		this.webSpeechEngine.setVoice(this.settings.webSpeechVoice);
+
+		// Check if voices are available (Android WebView may have none)
+		const voices = speechSynthesis.getVoices();
+		if (voices.length === 0) {
+			// Wait briefly for async voice loading
+			await new Promise<void>((resolve) => {
+				speechSynthesis.addEventListener("voiceschanged", () => resolve(), { once: true });
+				setTimeout(resolve, 2000);
+			});
+			if (speechSynthesis.getVoices().length === 0) {
+				new Notice(
+					"TTS Reader: No voices found. On Android, install Google Text-to-Speech from the Play Store and set it as default in Settings > System > Language > Text-to-speech output.",
+					10000,
+				);
+			}
+		}
+
 		return this.webSpeechEngine;
 	}
 

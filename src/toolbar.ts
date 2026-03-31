@@ -34,12 +34,16 @@ export class Toolbar {
 	private currentSpeed: number;
 	private _state: PlaybackState = "idle";
 
-	constructor(parentEl: HTMLElement, initialSpeed: number) {
+	constructor(
+		parentEl: HTMLElement,
+		initialSpeed: number,
+		position: "bottom" | "top" = "bottom",
+	) {
 		this.containerEl = parentEl;
 		this.currentSpeed = initialSpeed;
 
 		this.el = document.createElement("div");
-		this.el.className = "tts-reader-toolbar";
+		this.el.className = `tts-reader-toolbar tts-reader-toolbar-${position}`;
 
 		const controls = this.el.createDiv({ cls: "tts-reader-controls" });
 

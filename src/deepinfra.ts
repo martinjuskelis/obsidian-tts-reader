@@ -17,6 +17,7 @@ export class DeepInfraEngine implements TTSEngine {
 	private apiKey: string;
 	private model: string;
 	private ac: AbortController | null = null;
+	debug = false;
 
 	/** Pre-fetched audio blobs keyed by sentence text */
 	private preBufferCache = new Map<string, Blob>();
@@ -66,7 +67,9 @@ export class DeepInfraEngine implements TTSEngine {
 		if (ac.signal.aborted) return;
 
 		if (!blob) {
-			new Notice("TTS Reader: DeepInfra returned no audio. Check the developer console (Ctrl+Shift+I) for details.");
+			if (this.debug) {
+				new Notice("TTS Reader: DeepInfra returned no audio. Check the developer console (Ctrl+Shift+I) for details.");
+			}
 			return;
 		}
 
@@ -188,17 +191,20 @@ export class DeepInfraEngine implements TTSEngine {
 				return new Blob([audioResp.arrayBuffer], { type: "audio/mp3" });
 			}
 
-			console.error(
-				"DeepInfra TTS: unexpected response format.",
-				"Content-Type:", contentType,
-				"Response keys:", Object.keys(json),
-				"Response (first 500 chars):", JSON.stringify(json).substring(0, 500),
-			);
-			new Notice("TTS Reader: Unexpected response from DeepInfra. See console for details.");
+			if (this.debug) {
+				console.error(
+					"DeepInfra TTS: unexpected response format.",
+					"Content-Type:", contentType,
+					"Response keys:", Object.keys(json),
+					"Response (first 500 chars):", JSON.stringify(json).substring(0, 500),
+				);
+				new Notice("TTS Reader: Unexpected response from DeepInfra. See console for details.");
+			}
 			return null;
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
-			console.error("DeepInfra TTS fetch failed:", msg, e);
+			console.error("DeepInfra TTS fetch failed:", msg);
+			// Always show API errors (auth failures, network, etc.)
 			new Notice(`TTS Reader: DeepInfra error: ${msg}`);
 			return null;
 		}

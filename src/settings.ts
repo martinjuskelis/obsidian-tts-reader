@@ -176,6 +176,41 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		new Setting(containerEl)
+			.setName("Toolbar position")
+			.setDesc(
+				"Where the playback toolbar appears. Use Top on mobile to avoid Obsidian's toolbar covering it.",
+			)
+			.addDropdown((d) =>
+				d
+					.addOption("bottom", "Bottom")
+					.addOption("top", "Top")
+					.setValue(this.plugin.settings.toolbarPosition)
+					.onChange(async (v) => {
+						this.plugin.settings.toolbarPosition = v as
+							| "bottom"
+							| "top";
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		// --- Advanced ---
+		new Setting(containerEl).setName("Advanced").setHeading();
+
+		new Setting(containerEl)
+			.setName("Debug mode")
+			.setDesc(
+				"Show detailed diagnostic notices for troubleshooting TTS issues. Check the developer console (Ctrl+Shift+I) for full details.",
+			)
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.debug)
+					.onChange(async (v) => {
+						this.plugin.settings.debug = v;
+						await this.plugin.saveSettings();
+					}),
+			);
 	}
 
 	private async getWebSpeechVoices(): Promise<VoiceOption[]> {

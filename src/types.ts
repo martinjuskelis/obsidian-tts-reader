@@ -7,6 +7,8 @@ export interface TTSReaderSettings {
 	skipCodeBlocks: boolean;
 	skipFrontmatter: boolean;
 	autoScroll: boolean;
+	toolbarPosition: "bottom" | "top";
+	debug: boolean;
 }
 
 export const DEFAULT_SETTINGS: TTSReaderSettings = {
@@ -18,6 +20,8 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	skipCodeBlocks: true,
 	skipFrontmatter: true,
 	autoScroll: true,
+	toolbarPosition: "bottom",
+	debug: false,
 };
 
 export const DEEPINFRA_MODELS: { id: string; name: string }[] = [
