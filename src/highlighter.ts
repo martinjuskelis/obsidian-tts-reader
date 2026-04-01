@@ -149,8 +149,9 @@ export class Highlighter {
 		}, 150);
 	}
 
+	/** Reset cursor so next search uses progress-based positioning. */
 	resetSearchPosition(): void {
-		this.lastMatchEnd = 0;
+		this.lastMatchEnd = -1;
 	}
 
 	// --- DOM search ---
@@ -190,9 +191,13 @@ export class Highlighter {
 
 		// Three-tier search to handle duplicate text correctly:
 		// 1. Sequential: search forward from last match (handles duplicates)
+		//    Skipped when lastMatchEnd is -1 (after skip/jump/click)
 		// 2. Progress: estimate from sentence index (handles skip/jump)
 		// 3. Full: search from start (last resort)
-		let match = this.regexFrom(regex, rawBuffer, this.lastMatchEnd);
+		let match =
+			this.lastMatchEnd >= 0
+				? this.regexFrom(regex, rawBuffer, this.lastMatchEnd)
+				: null;
 
 		if (!match) {
 			// Fallback: progress-based estimate (for skip/jump)
