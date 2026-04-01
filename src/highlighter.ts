@@ -283,22 +283,24 @@ export class Highlighter {
 			const rect = range.getBoundingClientRect();
 			if (rect.height === 0) return;
 
-			const toolbarReserve = 140;
+			// Reserve the bottom 40% of the viewport — scroll before
+			// the sentence gets anywhere near the toolbar.
 			const viewportH = window.innerHeight;
-			const safeBottom = viewportH - toolbarReserve;
+			const safeBottom = viewportH * 0.6;
 
-			if (rect.top >= 60 && rect.bottom <= safeBottom) return;
+			if (rect.top >= 40 && rect.bottom <= safeBottom) return;
 
 			const scrollContainer = this.findScrollContainer(
 				range.startContainer as HTMLElement,
 			);
 			if (scrollContainer) {
 				const containerRect = scrollContainer.getBoundingClientRect();
+				// Position sentence near the top (1/6th from top edge)
 				const scrollTop =
 					scrollContainer.scrollTop +
 					rect.top -
 					containerRect.top -
-					containerRect.height / 4;
+					containerRect.height / 6;
 				scrollContainer.scrollTo({
 					top: scrollTop,
 					behavior: "smooth",
