@@ -419,22 +419,67 @@ export default class TTSReaderPlugin extends Plugin {
 				caretRange &&
 				caretRange.startContainer.nodeType === Node.TEXT_NODE
 			) {
-				const nodeText = caretRange.startContainer.textContent ?? "";
-				const offset = caretRange.startOffset;
-				const ctxStart = Math.max(0, offset - 10);
-				const ctxEnd = Math.min(nodeText.length, offset + 10);
-				const snippet = nodeText.substring(ctxStart, ctxEnd).trim();
+				const clickedNode = caretRange.startContainer as Text;
+				const clickOffset = caretRange.startOffset;
+				const nodeText = clickedNode.textContent ?? "";
+				const ctxStart = Math.max(0, clickOffset - 10);
+				const ctxEnd = Math.min(nodeText.length, clickOffset + 10);
+				const snippet = nodeText
+					.substring(ctxStart, ctxEnd)
+					.trim();
 
 				if (snippet.length >= 3) {
-					const idx = this.findClosestSentence(
-						sentences,
-						snippet,
-						clickProgress,
-					);
-					if (idx >= 0) {
-						this.highlighter?.resetSearchPosition();
-						this.controller.jumpTo(idx, this.settings.speed);
+					// Find all sentences matching the snippet
+					const matchingIndices: number[] = [];
+					for (let i = 0; i < sentences.length; i++) {
+						if (sentences[i].text.includes(snippet)) {
+							matchingIndices.push(i);
+						}
+					}
+
+					if (matchingIndices.length === 1) {
+						// Unique — jump directly
+						this.controller.jumpTo(
+							matchingIndices[0],
+							this.settings.speed,
+						);
 						return;
+					}
+
+					if (matchingIndices.length > 1 && this.highlighter) {
+						// Duplicate text — ask the highlighter which
+						// occurrence contains the click position
+						const sentText = sentences[matchingIndices[0]].text;
+						const occ = this.highlighter.getOccurrenceAt(
+							sentText,
+							clickedNode,
+							clickOffset,
+						);
+						if (occ >= 0) {
+							// Find the sentence with this occurrence
+							for (const idx of matchingIndices) {
+								if (sentences[idx].occurrence === occ) {
+									this.controller.jumpTo(
+										idx,
+										this.settings.speed,
+									);
+									return;
+								}
+							}
+						}
+						// Fallback: use position estimate
+						const idx = this.findClosestSentence(
+							sentences,
+							snippet,
+							clickProgress,
+						);
+						if (idx >= 0) {
+							this.controller.jumpTo(
+								idx,
+								this.settings.speed,
+							);
+							return;
+						}
 					}
 				}
 			}
@@ -455,7 +500,6 @@ export default class TTSReaderPlugin extends Plugin {
 				clickProgress,
 			);
 			if (idx >= 0) {
-				this.highlighter?.resetSearchPosition();
 				this.controller.jumpTo(idx, this.settings.speed);
 			}
 		};

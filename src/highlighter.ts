@@ -139,6 +139,46 @@ export class Highlighter {
 		// no-op — occurrence-based matching doesn't need cursor resets
 	}
 
+	/**
+	 * Given a clicked text node and offset, determine which occurrence
+	 * of `text` contains that position in the DOM buffer.
+	 * Returns the occurrence index, or -1 if not found.
+	 */
+	getOccurrenceAt(text: string, node: Text, offset: number): number {
+		if (!this.container) return -1;
+
+		const entries = this.collectEntries();
+		const rawBuffer = entries
+			.map((e) => e.node.textContent ?? "")
+			.join("");
+
+		// Find the click's position in the raw buffer
+		let clickPos = -1;
+		for (const entry of entries) {
+			if (entry.node === node) {
+				clickPos = entry.start + offset;
+				break;
+			}
+		}
+		if (clickPos < 0) return -1;
+
+		// Build regex and find all matches
+		const words = text.split(/\s+/).filter((w) => w.length > 0);
+		if (words.length === 0) return -1;
+		const pattern = words.map(escapeRegex).join("\\s*");
+		const regex = new RegExp(pattern, "g");
+
+		let occurrence = 0;
+		let m: RegExpExecArray | null;
+		while ((m = regex.exec(rawBuffer)) !== null) {
+			if (clickPos >= m.index && clickPos < m.index + m[0].length) {
+				return occurrence;
+			}
+			occurrence++;
+		}
+		return -1;
+	}
+
 	// --- DOM search ---
 
 	/**
