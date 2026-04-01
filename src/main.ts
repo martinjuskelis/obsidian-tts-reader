@@ -403,8 +403,14 @@ export default class TTSReaderPlugin extends Plugin {
 
 			const sentences = this.controller.sentences;
 
-			// Use caretRangeFromPoint to get the exact click position,
-			// extract a text snippet, and find the sentence containing it.
+			// Estimate click position as a fraction of the document.
+			// Used to disambiguate when the same text appears multiple times.
+			const clickProgress = this.estimateClickProgress(
+				e.target as HTMLElement,
+				previewEl,
+			);
+
+			// Use caretRangeFromPoint to get a text snippet at the click
 			const caretRange = document.caretRangeFromPoint(
 				e.clientX,
 				e.clientY,
@@ -415,22 +421,20 @@ export default class TTSReaderPlugin extends Plugin {
 			) {
 				const nodeText = caretRange.startContainer.textContent ?? "";
 				const offset = caretRange.startOffset;
-
-				// Grab ~20 chars around the click point as a search key
 				const ctxStart = Math.max(0, offset - 10);
 				const ctxEnd = Math.min(nodeText.length, offset + 10);
 				const snippet = nodeText.substring(ctxStart, ctxEnd).trim();
 
 				if (snippet.length >= 3) {
-					for (let i = 0; i < sentences.length; i++) {
-						if (sentences[i].text.includes(snippet)) {
-							this.highlighter?.resetSearchPosition();
-							this.controller.jumpTo(
-								i,
-								this.settings.speed,
-							);
-							return;
-						}
+					const idx = this.findClosestSentence(
+						sentences,
+						snippet,
+						clickProgress,
+					);
+					if (idx >= 0) {
+						this.highlighter?.resetSearchPosition();
+						this.controller.jumpTo(idx, this.settings.speed);
+						return;
 					}
 				}
 			}
@@ -445,17 +449,76 @@ export default class TTSReaderPlugin extends Plugin {
 			const blockText = block.textContent ?? "";
 			if (blockText.trim().length === 0) return;
 
-			for (let i = 0; i < sentences.length; i++) {
-				if (blockText.includes(sentences[i].text)) {
-					this.highlighter?.resetSearchPosition();
-					this.controller.jumpTo(i, this.settings.speed);
-					return;
-				}
+			const idx = this.findClosestSentence(
+				sentences,
+				blockText,
+				clickProgress,
+			);
+			if (idx >= 0) {
+				this.highlighter?.resetSearchPosition();
+				this.controller.jumpTo(idx, this.settings.speed);
 			}
 		};
 
 		this.clickTarget = previewEl;
 		previewEl.addEventListener("click", this.clickHandler);
+	}
+
+	/**
+	 * Estimate where in the document the user clicked, as a 0–1 ratio.
+	 * Uses the element's visual position relative to the scroll container.
+	 */
+	private estimateClickProgress(
+		target: HTMLElement,
+		container: HTMLElement,
+	): number {
+		const scrollContainer =
+			container.closest(".markdown-preview-view") ?? container;
+		const scrollEl = scrollContainer as HTMLElement;
+		const totalHeight = scrollEl.scrollHeight;
+		if (totalHeight === 0) return 0;
+
+		const rect = target.getBoundingClientRect();
+		const containerRect = scrollEl.getBoundingClientRect();
+		const docPosition =
+			scrollEl.scrollTop + rect.top - containerRect.top;
+		return Math.max(0, Math.min(1, docPosition / totalHeight));
+	}
+
+	/**
+	 * Find all sentences containing `snippet`, then pick the one whose
+	 * expected position (index/total) is closest to `clickProgress`.
+	 */
+	private findClosestSentence(
+		sentences: readonly { text: string }[],
+		snippet: string,
+		clickProgress: number,
+	): number {
+		// Collect all matching indices
+		const matches: number[] = [];
+		for (let i = 0; i < sentences.length; i++) {
+			if (sentences[i].text.includes(snippet)) {
+				matches.push(i);
+			}
+		}
+		if (matches.length === 0) return -1;
+		if (matches.length === 1) return matches[0];
+
+		// Pick the one closest to the click position
+		let best = matches[0];
+		let bestDist = Math.abs(
+			matches[0] / sentences.length - clickProgress,
+		);
+		for (let i = 1; i < matches.length; i++) {
+			const dist = Math.abs(
+				matches[i] / sentences.length - clickProgress,
+			);
+			if (dist < bestDist) {
+				best = matches[i];
+				bestDist = dist;
+			}
+		}
+		return best;
 	}
 
 	private teardownClickToJump(): void {

@@ -185,54 +185,45 @@ export class Highlighter {
 
 		const pattern = words.map(escapeRegex).join("\\s*");
 
-		const regex = new RegExp(pattern);
-		let matchStart: number;
-		let matchLength: number;
+		const regex = new RegExp(pattern, "g");
 
-		// Three-tier search to handle duplicate text correctly:
-		// 1. Sequential: search forward from last match (handles duplicates)
-		//    Skipped when lastMatchEnd is -1 (after skip/jump/click)
-		// 2. Progress: estimate from sentence index (handles skip/jump)
-		// 3. Full: search from start (last resort)
-		let match =
-			this.lastMatchEnd >= 0
-				? this.regexFrom(regex, rawBuffer, this.lastMatchEnd)
-				: null;
-
-		if (!match) {
-			// Fallback: progress-based estimate (for skip/jump)
-			const est = Math.max(
-				0,
-				Math.floor(rawBuffer.length * this.progress) - 500,
-			);
-			match = this.regexFrom(regex, rawBuffer, est);
+		if (this.lastMatchEnd >= 0) {
+			// Sequential forward reading: find the first match at or after
+			// the cursor. This correctly advances past duplicate lines.
+			regex.lastIndex = this.lastMatchEnd;
+			const m = regex.exec(rawBuffer);
+			if (m) {
+				this.lastMatchEnd = m.index + m[0].length;
+				return this.createRanges(m.index, m[0].length, entries);
+			}
 		}
 
-		if (!match) {
-			// Last resort: search entire buffer
-			match = this.regexFrom(regex, rawBuffer, 0);
+		// For jump/click/skip-backward (cursor = -1), or if sequential
+		// search found nothing: find ALL matches and pick the one
+		// closest to expected position based on reading progress.
+		const allMatches: { index: number; length: number }[] = [];
+		regex.lastIndex = 0;
+		let m: RegExpExecArray | null;
+		while ((m = regex.exec(rawBuffer)) !== null) {
+			allMatches.push({ index: m.index, length: m[0].length });
 		}
 
-		if (!match) return [];
+		if (allMatches.length === 0) return [];
 
-		matchStart = match.offset;
-		matchLength = match.length;
-		this.lastMatchEnd = matchStart + matchLength;
+		const expectedPos = rawBuffer.length * this.progress;
+		let best = allMatches[0];
+		for (let i = 1; i < allMatches.length; i++) {
+			if (
+				Math.abs(allMatches[i].index - expectedPos) <
+				Math.abs(best.index - expectedPos)
+			) {
+				best = allMatches[i];
+			}
+		}
 
-		return this.createRanges(matchStart, matchLength, entries);
-	}
+		this.lastMatchEnd = best.index + best.length;
 
-	/** Run regex on buffer starting from `from`. Returns {offset, length} or null. */
-	private regexFrom(
-		regex: RegExp,
-		buffer: string,
-		from: number,
-	): { offset: number; length: number } | null {
-		if (from >= buffer.length) return null;
-		const region = buffer.substring(from);
-		const m = regex.exec(region);
-		if (!m) return null;
-		return { offset: from + m.index, length: m[0].length };
+		return this.createRanges(best.index, best.length, entries);
 	}
 
 	private collectEntries(): TextEntry[] {
