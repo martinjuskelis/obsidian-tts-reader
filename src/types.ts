@@ -138,6 +138,8 @@ export const SPEED_STEP = 0.25;
 
 export interface SentenceInfo {
 	text: string;
+	/** Which occurrence of this exact text (0-indexed). For unique text, always 0. */
+	occurrence: number;
 }
 
 export type PlaybackState = "idle" | "playing" | "paused";

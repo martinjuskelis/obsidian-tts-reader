@@ -4,6 +4,7 @@ import {
 	SPEED_MIN,
 	SPEED_MAX,
 	SPEED_STEP,
+	type SentenceInfo,
 	type TTSReaderSettings,
 	type TTSEngine,
 } from "./types";
@@ -373,7 +374,6 @@ export default class TTSReaderPlugin extends Plugin {
 
 		this.controller.onSentenceChange = (index, total) => {
 			toolbar.updateProgress(index, total);
-			this.highlighter?.setProgress(index, total);
 		};
 
 		this.controller.onError = (msg) => {
@@ -490,11 +490,10 @@ export default class TTSReaderPlugin extends Plugin {
 	 * expected position (index/total) is closest to `clickProgress`.
 	 */
 	private findClosestSentence(
-		sentences: readonly { text: string }[],
+		sentences: readonly SentenceInfo[],
 		snippet: string,
 		clickProgress: number,
 	): number {
-		// Collect all matching indices
 		const matches: number[] = [];
 		for (let i = 0; i < sentences.length; i++) {
 			if (sentences[i].text.includes(snippet)) {
@@ -504,14 +503,21 @@ export default class TTSReaderPlugin extends Plugin {
 		if (matches.length === 0) return -1;
 		if (matches.length === 1) return matches[0];
 
-		// Pick the one closest to the click position
+		// Use cumulative character length for more accurate position mapping
+		let totalChars = 0;
+		const charPos: number[] = [];
+		for (let i = 0; i < sentences.length; i++) {
+			charPos.push(totalChars);
+			totalChars += sentences[i].text.length;
+		}
+
 		let best = matches[0];
 		let bestDist = Math.abs(
-			matches[0] / sentences.length - clickProgress,
+			charPos[matches[0]] / totalChars - clickProgress,
 		);
 		for (let i = 1; i < matches.length; i++) {
 			const dist = Math.abs(
-				matches[i] / sentences.length - clickProgress,
+				charPos[matches[i]] / totalChars - clickProgress,
 			);
 			if (dist < bestDist) {
 				best = matches[i];

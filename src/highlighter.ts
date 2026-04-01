@@ -47,9 +47,7 @@ export class Highlighter {
 	private marks: HTMLElement[] = [];
 	private lastRanges: Range[] = [];
 	private lastSentenceText = "";
-	private progress = 0;
-	/** Sequential cursor — end position of the last successful match in the raw buffer */
-	private lastMatchEnd = 0;
+	private lastOccurrence = 0;
 
 	constructor() {
 		this.useCustomHighlight =
@@ -62,16 +60,16 @@ export class Highlighter {
 		this.container = el;
 	}
 
-	setProgress(current: number, total: number): void {
-		this.progress = total > 0 ? current / total : 0;
-	}
-
 	highlight(sentence: SentenceInfo, autoScroll: boolean): void {
 		this.clear();
 		if (!this.container) return;
 
 		this.lastSentenceText = sentence.text;
-		const ranges = this.findTextInDOM(sentence.text);
+		this.lastOccurrence = sentence.occurrence;
+		const ranges = this.findTextInDOM(
+			sentence.text,
+			sentence.occurrence,
+		);
 		this.lastRanges = ranges;
 
 		if (ranges.length > 0) {
@@ -121,7 +119,10 @@ export class Highlighter {
 		if (this.tryScrollToRanges()) return;
 
 		if (this.lastSentenceText) {
-			const ranges = this.findTextInDOM(this.lastSentenceText);
+			const ranges = this.findTextInDOM(
+				this.lastSentenceText,
+				this.lastOccurrence,
+			);
 			if (ranges.length > 0) {
 				this.lastRanges = ranges;
 				this.scrollToRange(ranges[0]);
@@ -129,29 +130,13 @@ export class Highlighter {
 			}
 		}
 
-		const scrollEl = this.getScrollContainer();
-		if (!scrollEl) return;
-		const target = scrollEl.scrollHeight * this.progress;
-		scrollEl.scrollTo({ top: target, behavior: "instant" });
-
-		setTimeout(() => {
-			if (this.lastSentenceText) {
-				const ranges = this.findTextInDOM(this.lastSentenceText);
-				if (ranges.length > 0) {
-					this.lastRanges = ranges;
-					if (this.useCustomHighlight) {
-						const hl = new Highlight(...ranges);
-						CSS.highlights.set("tts-reader-current", hl);
-					}
-					this.scrollToRange(ranges[0]);
-				}
-			}
-		}, 150);
+		// Section de-rendered — no fallback scroll estimate needed;
+		// auto-scroll during playback will catch up on next sentence.
 	}
 
 	/** Reset cursor so next search uses progress-based positioning. */
 	resetSearchPosition(): void {
-		this.lastMatchEnd = -1;
+		// no-op — occurrence-based matching doesn't need cursor resets
 	}
 
 	// --- DOM search ---
@@ -166,43 +151,30 @@ export class Highlighter {
 	 * 4. regex.exec(rawBuffer) → match position in raw buffer
 	 * 5. createRanges() maps raw offset back to text nodes
 	 */
-	private findTextInDOM(text: string): Range[] {
+	/**
+	 * Find the Nth occurrence of sentence text in the DOM.
+	 *
+	 * `occurrence` is deterministic (computed during extraction),
+	 * so duplicate lines always highlight the correct instance.
+	 */
+	private findTextInDOM(text: string, occurrence = 0): Range[] {
 		if (!this.container) return [];
 
 		const entries = this.collectEntries();
 		if (entries.length === 0) return [];
 
-		// Raw buffer — exact text node content, no normalization
 		const rawBuffer = entries
 			.map((e) => e.node.textContent ?? "")
 			.join("");
 
-		// Build a flexible regex from the sentence:
-		// "Hello world, this is a test." →
-		// /Hello\s+world,\s+this\s+is\s+a\s+test\./
 		const words = text.split(/\s+/).filter((w) => w.length > 0);
 		if (words.length === 0) return [];
 
 		const pattern = words.map(escapeRegex).join("\\s*");
-
 		const regex = new RegExp(pattern, "g");
 
-		if (this.lastMatchEnd >= 0) {
-			// Sequential forward reading: find the first match at or after
-			// the cursor. This correctly advances past duplicate lines.
-			regex.lastIndex = this.lastMatchEnd;
-			const m = regex.exec(rawBuffer);
-			if (m) {
-				this.lastMatchEnd = m.index + m[0].length;
-				return this.createRanges(m.index, m[0].length, entries);
-			}
-		}
-
-		// For jump/click/skip-backward (cursor = -1), or if sequential
-		// search found nothing: find ALL matches and pick the one
-		// closest to expected position based on reading progress.
+		// Find ALL matches, then pick the Nth one
 		const allMatches: { index: number; length: number }[] = [];
-		regex.lastIndex = 0;
 		let m: RegExpExecArray | null;
 		while ((m = regex.exec(rawBuffer)) !== null) {
 			allMatches.push({ index: m.index, length: m[0].length });
@@ -210,20 +182,11 @@ export class Highlighter {
 
 		if (allMatches.length === 0) return [];
 
-		const expectedPos = rawBuffer.length * this.progress;
-		let best = allMatches[0];
-		for (let i = 1; i < allMatches.length; i++) {
-			if (
-				Math.abs(allMatches[i].index - expectedPos) <
-				Math.abs(best.index - expectedPos)
-			) {
-				best = allMatches[i];
-			}
-		}
+		// Pick the correct occurrence, clamped to available matches
+		const pick =
+			allMatches[Math.min(occurrence, allMatches.length - 1)];
 
-		this.lastMatchEnd = best.index + best.length;
-
-		return this.createRanges(best.index, best.length, entries);
+		return this.createRanges(pick.index, pick.length, entries);
 	}
 
 	private collectEntries(): TextEntry[] {

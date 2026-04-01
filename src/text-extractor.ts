@@ -81,6 +81,7 @@ export function extractSentences(
 
 	const paragraphs = text.split(/\n{2,}/);
 	const results: SentenceInfo[] = [];
+	const occurrenceCounts = new Map<string, number>();
 
 	for (const para of paragraphs) {
 		const clean = para.replace(/\n/g, " ").trim();
@@ -90,7 +91,9 @@ export function extractSentences(
 		for (const [start, end] of bounds) {
 			const sentence = clean.substring(start, end).trim();
 			if (sentence.length > 0) {
-				results.push({ text: sentence });
+				const occ = occurrenceCounts.get(sentence) ?? 0;
+				results.push({ text: sentence, occurrence: occ });
+				occurrenceCounts.set(sentence, occ + 1);
 			}
 		}
 	}
