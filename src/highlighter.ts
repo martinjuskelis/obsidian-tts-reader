@@ -48,6 +48,8 @@ export class Highlighter {
 	private lastRanges: Range[] = [];
 	private lastSentenceText = "";
 	private progress = 0;
+	/** Sequential cursor — end position of the last successful match in the raw buffer */
+	private lastMatchEnd = 0;
 
 	constructor() {
 		this.useCustomHighlight =
@@ -148,7 +150,7 @@ export class Highlighter {
 	}
 
 	resetSearchPosition(): void {
-		// no-op
+		this.lastMatchEnd = 0;
 	}
 
 	// --- DOM search ---
@@ -182,29 +184,50 @@ export class Highlighter {
 
 		const pattern = words.map(escapeRegex).join("\\s*");
 
-		// Search from estimated position first, then full buffer
-		const estimatedPos = Math.max(
-			0,
-			Math.floor(rawBuffer.length * this.progress) - 500,
-		);
-		const searchRegion = rawBuffer.substring(estimatedPos);
-		let regex = new RegExp(pattern);
-		let match = regex.exec(searchRegion);
+		const regex = new RegExp(pattern);
 		let matchStart: number;
 		let matchLength: number;
 
-		if (match) {
-			matchStart = estimatedPos + match.index;
-			matchLength = match[0].length;
-		} else {
-			// Fall back to full buffer
-			match = regex.exec(rawBuffer);
-			if (!match) return [];
-			matchStart = match.index;
-			matchLength = match[0].length;
+		// Three-tier search to handle duplicate text correctly:
+		// 1. Sequential: search forward from last match (handles duplicates)
+		// 2. Progress: estimate from sentence index (handles skip/jump)
+		// 3. Full: search from start (last resort)
+		let match = this.regexFrom(regex, rawBuffer, this.lastMatchEnd);
+
+		if (!match) {
+			// Fallback: progress-based estimate (for skip/jump)
+			const est = Math.max(
+				0,
+				Math.floor(rawBuffer.length * this.progress) - 500,
+			);
+			match = this.regexFrom(regex, rawBuffer, est);
 		}
 
+		if (!match) {
+			// Last resort: search entire buffer
+			match = this.regexFrom(regex, rawBuffer, 0);
+		}
+
+		if (!match) return [];
+
+		matchStart = match.offset;
+		matchLength = match.length;
+		this.lastMatchEnd = matchStart + matchLength;
+
 		return this.createRanges(matchStart, matchLength, entries);
+	}
+
+	/** Run regex on buffer starting from `from`. Returns {offset, length} or null. */
+	private regexFrom(
+		regex: RegExp,
+		buffer: string,
+		from: number,
+	): { offset: number; length: number } | null {
+		if (from >= buffer.length) return null;
+		const region = buffer.substring(from);
+		const m = regex.exec(region);
+		if (!m) return null;
+		return { offset: from + m.index, length: m[0].length };
 	}
 
 	private collectEntries(): TextEntry[] {
