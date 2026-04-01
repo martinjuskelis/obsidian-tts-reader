@@ -10,6 +10,7 @@ import {
 } from "./types";
 import { TTSReaderSettingTab } from "./settings";
 import { extractSentences } from "./text-extractor";
+import { buildSentenceOffsets, findSentenceAtOffset } from "./position-map";
 import { WebSpeechEngine } from "./web-speech";
 import { DeepInfraEngine } from "./deepinfra";
 import { Highlighter } from "./highlighter";
@@ -25,6 +26,8 @@ export default class TTSReaderPlugin extends Plugin {
 	private highlighter: Highlighter | null = null;
 	private clickHandler: ((e: MouseEvent) => void) | null = null;
 	private clickTarget: HTMLElement | null = null;
+	private editorClickHandler: ((e: MouseEvent) => void) | null = null;
+	private editorClickTarget: HTMLElement | null = null;
 	private playbackLeaf: WorkspaceLeaf | null = null;
 	private playbackFilePath: string | null = null;
 
@@ -192,6 +195,25 @@ export default class TTSReaderPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "read-from-cursor",
+			name: "Read from cursor position",
+			checkCallback: (checking) => {
+				const view =
+					this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (!view) return false;
+				if (checking) return true;
+
+				if (view.getMode() !== "preview") {
+					const cursor = view.editor.getCursor();
+					const offset = view.editor.posToOffset(cursor);
+					this.startPlayback(view, offset);
+				} else {
+					this.startPlayback(view);
+				}
+			},
+		});
+
+		this.addCommand({
 			id: "open-settings",
 			name: "Open TTS Reader settings",
 			callback: () => {
@@ -203,17 +225,14 @@ export default class TTSReaderPlugin extends Plugin {
 
 	// --- Playback lifecycle ---
 
-	private async startPlayback(view: MarkdownView): Promise<void> {
+	private async startPlayback(
+		view: MarkdownView,
+		startOffset?: number,
+	): Promise<void> {
 		this.stopPlayback();
 
 		const mode = view.getMode();
-		if (mode !== "preview") {
-			new Notice(
-				"TTS Reader: Please switch to Reading View first.\n" +
-					"(Click the book icon or use the command palette)",
-			);
-			return;
-		}
+		const isEditorMode = mode !== "preview";
 
 		const markdown = view.getViewData();
 		const sentences = extractSentences(
@@ -226,14 +245,29 @@ export default class TTSReaderPlugin extends Plugin {
 			return;
 		}
 
+		// Determine start index
+		let startIndex = 0;
+		if (startOffset != null) {
+			const offsets = buildSentenceOffsets(markdown, sentences);
+			startIndex = findSentenceAtOffset(offsets, startOffset);
+		} else if (isEditorMode) {
+			// In editor mode without explicit offset, start from cursor
+			const cursor = view.editor.getCursor();
+			const cursorOffset = view.editor.posToOffset(cursor);
+			const offsets = buildSentenceOffsets(markdown, sentences);
+			startIndex = findSentenceAtOffset(offsets, cursorOffset);
+		}
+
 		const engine = await this.getEngine();
 		if (!engine) return;
 
-		const previewEl = view.contentEl.querySelector(
-			".markdown-preview-view",
-		) as HTMLElement | null;
-
+		// Set up highlighter — only attach to DOM in Reading View
 		this.highlighter = new Highlighter();
+		const previewEl = isEditorMode
+			? null
+			: (view.contentEl.querySelector(
+					".markdown-preview-view",
+				) as HTMLElement | null);
 		if (previewEl) {
 			this.highlighter.setContainer(previewEl);
 		}
@@ -254,10 +288,21 @@ export default class TTSReaderPlugin extends Plugin {
 		);
 		this.wireToolbar();
 		this.wireController();
-		if (previewEl) this.setupClickToJump(previewEl);
 
-		new Notice(`Reading ${sentences.length} sentences...`);
-		await this.controller.start(sentences, 0, this.settings.speed);
+		if (isEditorMode) {
+			this.setupEditorClickToJump(view);
+		} else if (previewEl) {
+			this.setupClickToJump(previewEl);
+		}
+
+		if (startIndex > 0) {
+			new Notice(
+				`Reading from sentence ${startIndex + 1} of ${sentences.length}...`,
+			);
+		} else {
+			new Notice(`Reading ${sentences.length} sentences...`);
+		}
+		await this.controller.start(sentences, startIndex, this.settings.speed);
 	}
 
 	private stopPlayback(): void {
@@ -571,12 +616,91 @@ export default class TTSReaderPlugin extends Plugin {
 		return best;
 	}
 
+	// --- Editor click-to-jump (Ctrl+Alt+Click / Cmd+Alt+Click) ---
+
+	private setupEditorClickToJump(view: MarkdownView): void {
+		this.editorClickHandler = (e: MouseEvent) => {
+			if (!this.controller || this.controller.state === "idle") return;
+			if ((e.target as HTMLElement)?.closest(".tts-reader-toolbar"))
+				return;
+
+			// Ctrl+Alt (Win/Linux) or Cmd+Alt (Mac)
+			const modKey = Platform.isMacOS ? e.metaKey : e.ctrlKey;
+			if (!modKey || !e.altKey) return;
+
+			e.preventDefault();
+			e.stopImmediatePropagation();
+
+			const caretRange = document.caretRangeFromPoint(
+				e.clientX,
+				e.clientY,
+			);
+			if (
+				!caretRange ||
+				caretRange.startContainer.nodeType !== Node.TEXT_NODE
+			)
+				return;
+
+			const clickedNode = caretRange.startContainer as Text;
+			const clickOffset = caretRange.startOffset;
+			const nodeText = clickedNode.textContent ?? "";
+
+			// Extract a snippet around the click point
+			const ctxStart = Math.max(0, clickOffset - 20);
+			const ctxEnd = Math.min(nodeText.length, clickOffset + 20);
+			const snippet = nodeText.substring(ctxStart, ctxEnd).trim();
+			if (snippet.length < 3) return;
+
+			const markdown = view.getViewData();
+			const sentences = this.controller.sentences;
+			const offsets = buildSentenceOffsets(markdown, sentences);
+
+			// Try to find the snippet in the raw markdown
+			const snippetPos = markdown.indexOf(snippet);
+			if (snippetPos >= 0) {
+				const idx = findSentenceAtOffset(offsets, snippetPos);
+				this.controller.jumpTo(idx, this.settings.speed);
+				return;
+			}
+
+			// Fallback: match snippet against sentence text
+			for (let i = 0; i < sentences.length; i++) {
+				if (sentences[i].text.includes(snippet)) {
+					this.controller.jumpTo(i, this.settings.speed);
+					return;
+				}
+			}
+		};
+
+		const editorEl = view.contentEl.querySelector(
+			".cm-editor",
+		) as HTMLElement | null;
+		if (editorEl) {
+			this.editorClickTarget = editorEl;
+			editorEl.addEventListener(
+				"mousedown",
+				this.editorClickHandler,
+				true,
+			);
+		}
+	}
+
 	private teardownClickToJump(): void {
 		if (this.clickHandler && this.clickTarget) {
 			this.clickTarget.removeEventListener("click", this.clickHandler);
 		}
 		this.clickHandler = null;
 		this.clickTarget = null;
+
+		if (this.editorClickHandler && this.editorClickTarget) {
+			this.editorClickTarget.removeEventListener(
+				"mousedown",
+				this.editorClickHandler,
+				true,
+			);
+		}
+		this.editorClickHandler = null;
+		this.editorClickTarget = null;
 	}
 
 	private changeSpeed(delta: number): void {
