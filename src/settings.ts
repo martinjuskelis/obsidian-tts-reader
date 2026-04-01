@@ -255,6 +255,20 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("Editor line indicator")
+			.setDesc(
+				"Show a left-border marker on the line being read in editing mode.",
+			)
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.editorLineIndicator)
+					.onChange(async (v) => {
+						this.plugin.settings.editorLineIndicator = v;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
 			.setName("Buffer ahead")
 			.setDesc(
 				"How many sentences to pre-fetch while the current one plays. Increase for slow models like Orpheus (5\u201310). Kokoro is fast enough with 2\u20133.",

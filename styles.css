@@ -15,6 +15,14 @@ mark.tts-reader-highlight {
 }
 
 /* ============================================================
+   TTS Reader – Editor Line Indicator
+   ============================================================ */
+
+.tts-reader-active-line {
+	border-left: 3px solid var(--interactive-accent);
+}
+
+/* ============================================================
    TTS Reader – Floating Toolbar
    ============================================================ */
 

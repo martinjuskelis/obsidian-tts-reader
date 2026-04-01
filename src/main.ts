@@ -1,4 +1,5 @@
 import { MarkdownView, Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
+import { EditorView } from "@codemirror/view";
 import {
 	DEFAULT_SETTINGS,
 	SPEED_MIN,
@@ -11,6 +12,7 @@ import {
 import { TTSReaderSettingTab } from "./settings";
 import { extractSentences } from "./text-extractor";
 import { buildSentenceOffsets, findSentenceAtOffset } from "./position-map";
+import { ttsLineField, updateTTSLineIndicator } from "./editor-line-indicator";
 import { WebSpeechEngine } from "./web-speech";
 import { DeepInfraEngine } from "./deepinfra";
 import { Highlighter } from "./highlighter";
@@ -28,6 +30,8 @@ export default class TTSReaderPlugin extends Plugin {
 	private clickTarget: HTMLElement | null = null;
 	private editorClickHandler: ((e: MouseEvent) => void) | null = null;
 	private editorClickTarget: HTMLElement | null = null;
+	private editorCmView: EditorView | null = null;
+	private sentenceOffsets: number[] = [];
 	private playbackLeaf: WorkspaceLeaf | null = null;
 	private playbackFilePath: string | null = null;
 
@@ -41,6 +45,7 @@ export default class TTSReaderPlugin extends Plugin {
 		}
 
 		this.addSettingTab(new TTSReaderSettingTab(this.app, this));
+		this.registerEditorExtension(ttsLineField);
 		this.registerCommands();
 
 		// Ribbon icon — toggles playback on/off
@@ -245,16 +250,18 @@ export default class TTSReaderPlugin extends Plugin {
 			return;
 		}
 
-		// Determine start index
+		// Determine start index — build offset map once if in editor mode
 		let startIndex = 0;
+		const offsets =
+			isEditorMode || startOffset != null
+				? buildSentenceOffsets(markdown, sentences)
+				: [];
+
 		if (startOffset != null) {
-			const offsets = buildSentenceOffsets(markdown, sentences);
 			startIndex = findSentenceAtOffset(offsets, startOffset);
 		} else if (isEditorMode) {
-			// In editor mode without explicit offset, start from cursor
 			const cursor = view.editor.getCursor();
 			const cursorOffset = view.editor.posToOffset(cursor);
-			const offsets = buildSentenceOffsets(markdown, sentences);
 			startIndex = findSentenceAtOffset(offsets, cursorOffset);
 		}
 
@@ -291,6 +298,11 @@ export default class TTSReaderPlugin extends Plugin {
 
 		if (isEditorMode) {
 			this.setupEditorClickToJump(view);
+			if (this.settings.editorLineIndicator) {
+				this.editorCmView =
+					(view.editor as any).cm ?? null;
+				this.sentenceOffsets = offsets;
+			}
 		} else if (previewEl) {
 			this.setupClickToJump(previewEl);
 		}
@@ -308,6 +320,7 @@ export default class TTSReaderPlugin extends Plugin {
 	private stopPlayback(): void {
 		this.playbackLeaf = null;
 		this.playbackFilePath = null;
+		this.clearEditorIndicator();
 		this.teardownClickToJump();
 		if (this.controller) {
 			this.controller.stop();
@@ -419,6 +432,7 @@ export default class TTSReaderPlugin extends Plugin {
 
 		this.controller.onSentenceChange = (index, total) => {
 			toolbar.updateProgress(index, total);
+			this.updateEditorIndicator(index);
 		};
 
 		this.controller.onError = (msg) => {
@@ -428,6 +442,7 @@ export default class TTSReaderPlugin extends Plugin {
 
 		this.controller.onComplete = () => {
 			new Notice("TTS Reader: Finished reading.");
+			this.clearEditorIndicator();
 			this.teardownClickToJump();
 			if (this.toolbar) {
 				this.toolbar.destroy();
@@ -614,6 +629,38 @@ export default class TTSReaderPlugin extends Plugin {
 			}
 		}
 		return best;
+	}
+
+	// --- Editor line indicator ---
+
+	private updateEditorIndicator(index: number): void {
+		if (!this.editorCmView || this.sentenceOffsets.length === 0) return;
+
+		const from = this.sentenceOffsets[index];
+		// Use next sentence offset (or estimate) to cover multi-line sentences
+		const to =
+			index + 1 < this.sentenceOffsets.length
+				? this.sentenceOffsets[index + 1] - 1
+				: from +
+					(this.controller?.sentences[index]?.text.length ?? 0);
+
+		try {
+			updateTTSLineIndicator(this.editorCmView, { from, to });
+		} catch {
+			// EditorView may be destroyed
+		}
+	}
+
+	private clearEditorIndicator(): void {
+		if (this.editorCmView) {
+			try {
+				updateTTSLineIndicator(this.editorCmView, null);
+			} catch {
+				// EditorView may be destroyed
+			}
+		}
+		this.editorCmView = null;
+		this.sentenceOffsets = [];
 	}
 
 	// --- Editor click-to-jump (Ctrl+Alt+Click / Cmd+Alt+Click) ---
