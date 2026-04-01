@@ -2,8 +2,6 @@ import type { SentenceInfo } from "./types";
 
 /**
  * Elements whose text content should be excluded from the search buffer.
- * Obsidian adds invisible UI elements (heading fold buttons, copy buttons,
- * embed links) whose text would pollute the buffer and break matching.
  */
 const SKIP_SELECTOR = [
 	"pre",
@@ -26,18 +24,22 @@ const SKIP_SELECTOR = [
 	"button",
 ].join(", ");
 
-interface TextRun {
+interface TextEntry {
 	node: Text;
-	bufferStart: number;
+	/** Byte offset where this node's content starts in the raw buffer */
+	start: number;
 	length: number;
 }
 
 /**
  * Highlights the current sentence in the rendered Reading View.
  *
- * Searches the live DOM each time (lazy-rendered sections may come and go).
- * Tracks sentence progress so scrollToCurrent() can estimate position
- * even when the target section is de-rendered by Obsidian.
+ * Uses regex-based matching against the raw DOM text buffer so that
+ * any whitespace in the sentence (spaces) flexibly matches any
+ * whitespace in the DOM (newlines, tabs, multiple spaces from <br>,
+ * trailing spaces from poetry, etc.).
+ *
+ * No normalization, no character maps, no normToRaw conversion.
  */
 export class Highlighter {
 	private container: HTMLElement | null = null;
@@ -45,7 +47,6 @@ export class Highlighter {
 	private marks: HTMLElement[] = [];
 	private lastRanges: Range[] = [];
 	private lastSentenceText = "";
-	/** 0–1 ratio of current sentence position through the document */
 	private progress = 0;
 
 	constructor() {
@@ -59,7 +60,6 @@ export class Highlighter {
 		this.container = el;
 	}
 
-	/** Update progress ratio (called by playback controller on sentence change). */
 	setProgress(current: number, total: number): void {
 		this.progress = total > 0 ? current / total : 0;
 	}
@@ -115,16 +115,9 @@ export class Highlighter {
 		}
 	}
 
-	/**
-	 * Scroll to the currently playing sentence. Handles the case where
-	 * Obsidian has de-rendered the section by estimating the scroll
-	 * position first (forcing a re-render), then finding the exact text.
-	 */
 	scrollToCurrent(): void {
-		// 1. Try stored ranges (fast path — section still rendered)
 		if (this.tryScrollToRanges()) return;
 
-		// 2. Re-search DOM (maybe section was re-rendered since last highlight)
 		if (this.lastSentenceText) {
 			const ranges = this.findTextInDOM(this.lastSentenceText);
 			if (ranges.length > 0) {
@@ -134,21 +127,16 @@ export class Highlighter {
 			}
 		}
 
-		// 3. Section is de-rendered. Jump to approximate position to force
-		//    Obsidian to render it, then find the exact text after a tick.
 		const scrollEl = this.getScrollContainer();
 		if (!scrollEl) return;
-
 		const target = scrollEl.scrollHeight * this.progress;
 		scrollEl.scrollTo({ top: target, behavior: "instant" });
 
-		// Wait for Obsidian to render the section, then find exact text
 		setTimeout(() => {
 			if (this.lastSentenceText) {
 				const ranges = this.findTextInDOM(this.lastSentenceText);
 				if (ranges.length > 0) {
 					this.lastRanges = ranges;
-					// Re-highlight
 					if (this.useCustomHighlight) {
 						const hl = new Highlight(...ranges);
 						CSS.highlights.set("tts-reader-current", hl);
@@ -160,124 +148,67 @@ export class Highlighter {
 	}
 
 	resetSearchPosition(): void {
-		// No-op — search now uses progress-based positioning
+		// no-op
 	}
 
 	// --- DOM search ---
 
 	/**
-	 * Find `text` in the rendered DOM by walking text nodes directly.
+	 * Find sentence text in the DOM using regex with flexible whitespace.
 	 *
-	 * Normalizes whitespace on both sides (extracted text has spaces
-	 * where the DOM has newlines/trailing spaces from poetry `  \n`).
-	 * Creates one Range per text node that overlaps the match.
+	 * 1. Walk text nodes → build entries[] with raw buffer offsets
+	 * 2. Concatenate into raw buffer (untouched — newlines, tabs, whatever)
+	 * 3. Turn the sentence into a regex: split on whitespace, escape each
+	 *    word, rejoin with \s+ so it matches ANY whitespace in the DOM
+	 * 4. regex.exec(rawBuffer) → match position in raw buffer
+	 * 5. createRanges() maps raw offset back to text nodes
 	 */
 	private findTextInDOM(text: string): Range[] {
 		if (!this.container) return [];
 
-		const runs = this.collectTextRuns();
-		if (runs.length === 0) return [];
+		const entries = this.collectEntries();
+		if (entries.length === 0) return [];
 
-		// Build a flat array of {runIndex, charIndex} for each
-		// normalized character, so we can map match positions back
-		// to exact DOM text node offsets.
-		const map: { ri: number; ci: number }[] = [];
-		let prevWasSpace = true; // start true to skip leading whitespace
-
-		for (let ri = 0; ri < runs.length; ri++) {
-			const nodeText = runs[ri].node.textContent ?? "";
-
-			// Virtual space between adjacent non-whitespace nodes
-			// (handles <br> producing separate nodes with no gap)
-			if (
-				!prevWasSpace &&
-				nodeText.length > 0 &&
-				!/^\s/.test(nodeText)
-			) {
-				map.push({ ri: -1, ci: -1 }); // virtual space
-				prevWasSpace = true;
-			}
-
-			for (let ci = 0; ci < nodeText.length; ci++) {
-				if (/\s/.test(nodeText[ci])) {
-					if (!prevWasSpace) {
-						map.push({ ri, ci });
-						prevWasSpace = true;
-					}
-					// extra whitespace chars: skip in normalized view
-				} else {
-					map.push({ ri, ci });
-					prevWasSpace = false;
-				}
-			}
-		}
-
-		// Build normalized string from the map.
-		// Whitespace entries (including \n from <br>) become spaces.
-		const buffer = map
-			.map((m) => {
-				if (m.ri === -1) return " ";
-				const ch = (runs[m.ri].node.textContent ?? "")[m.ci];
-				return /\s/.test(ch) ? " " : ch;
-			})
+		// Raw buffer — exact text node content, no normalization
+		const rawBuffer = entries
+			.map((e) => e.node.textContent ?? "")
 			.join("");
 
-		// Search from an estimated position based on reading progress,
-		// with fallback to full buffer search. Avoids the old
-		// lastSearchOffset which broke when the DOM changed.
+		// Build a flexible regex from the sentence:
+		// "Hello world, this is a test." →
+		// /Hello\s+world,\s+this\s+is\s+a\s+test\./
+		const words = text.split(/\s+/).filter((w) => w.length > 0);
+		if (words.length === 0) return [];
+
+		const pattern = words.map(escapeRegex).join("\\s*");
+
+		// Search from estimated position first, then full buffer
 		const estimatedPos = Math.max(
 			0,
-			Math.floor(buffer.length * this.progress) - 200,
+			Math.floor(rawBuffer.length * this.progress) - 500,
 		);
-		let idx = buffer.indexOf(text, estimatedPos);
-		if (idx === -1) idx = buffer.indexOf(text);
-		if (idx === -1) return [];
+		const searchRegion = rawBuffer.substring(estimatedPos);
+		let regex = new RegExp(pattern);
+		let match = regex.exec(searchRegion);
+		let matchStart: number;
+		let matchLength: number;
 
-		// Create Ranges — one per text node that overlaps the match
-		const ranges: Range[] = [];
-		let curRun = -1;
-		let segStart = -1;
-		let segEnd = -1;
-
-		for (let i = idx; i < idx + text.length; i++) {
-			const m = map[i];
-			if (m.ri === -1) continue; // virtual space
-
-			if (m.ri !== curRun) {
-				// Flush previous run's range
-				if (curRun >= 0 && segStart >= 0) {
-					try {
-						const r = document.createRange();
-						r.setStart(runs[curRun].node, segStart);
-						r.setEnd(runs[curRun].node, segEnd);
-						ranges.push(r);
-					} catch {
-						/* detached */
-					}
-				}
-				curRun = m.ri;
-				segStart = m.ci;
-			}
-			segEnd = m.ci + 1;
+		if (match) {
+			matchStart = estimatedPos + match.index;
+			matchLength = match[0].length;
+		} else {
+			// Fall back to full buffer
+			match = regex.exec(rawBuffer);
+			if (!match) return [];
+			matchStart = match.index;
+			matchLength = match[0].length;
 		}
 
-		// Flush last range
-		if (curRun >= 0 && segStart >= 0) {
-			try {
-				const r = document.createRange();
-				r.setStart(runs[curRun].node, segStart);
-				r.setEnd(runs[curRun].node, segEnd);
-				ranges.push(r);
-			} catch {
-				/* detached */
-			}
-		}
-
-		return ranges;
+		return this.createRanges(matchStart, matchLength, entries);
 	}
 
-	private collectTextRuns(): TextRun[] {
-		const runs: TextRun[] = [];
+	private collectEntries(): TextEntry[] {
+		const entries: TextEntry[] = [];
 		let pos = 0;
 
 		const walker = document.createTreeWalker(
@@ -297,42 +228,42 @@ export class Highlighter {
 		while ((node = walker.nextNode() as Text | null)) {
 			const len = node.textContent?.length ?? 0;
 			if (len > 0) {
-				runs.push({ node, bufferStart: pos, length: len });
+				entries.push({ node, start: pos, length: len });
 				pos += len;
 			}
 		}
-		return runs;
+		return entries;
 	}
 
 	private createRanges(
-		start: number,
-		length: number,
-		runs: TextRun[],
+		matchStart: number,
+		matchLength: number,
+		entries: TextEntry[],
 	): Range[] {
-		const end = start + length;
+		const matchEnd = matchStart + matchLength;
 		const ranges: Range[] = [];
 
-		for (const run of runs) {
-			const runEnd = run.bufferStart + run.length;
-			if (runEnd <= start) continue;
-			if (run.bufferStart >= end) break;
+		for (const entry of entries) {
+			const entryEnd = entry.start + entry.length;
+			if (entryEnd <= matchStart) continue;
+			if (entry.start >= matchEnd) break;
 
-			const segStart = Math.max(0, start - run.bufferStart);
-			const segEnd = Math.min(run.length, end - run.bufferStart);
+			const segStart = Math.max(0, matchStart - entry.start);
+			const segEnd = Math.min(entry.length, matchEnd - entry.start);
 
 			try {
 				const range = document.createRange();
-				range.setStart(run.node, segStart);
-				range.setEnd(run.node, segEnd);
+				range.setStart(entry.node, segStart);
+				range.setEnd(entry.node, segEnd);
 				ranges.push(range);
 			} catch {
-				// node detached
+				// node detached or offsets invalid
 			}
 		}
 		return ranges;
 	}
 
-	// --- Scrolling helpers ---
+	// --- Scrolling ---
 
 	private tryScrollToRanges(): boolean {
 		if (this.lastRanges.length === 0) return false;
@@ -352,13 +283,10 @@ export class Highlighter {
 			const rect = range.getBoundingClientRect();
 			if (rect.height === 0) return;
 
-			// Reserve space for the toolbar at the bottom (~120px covers
-			// toolbar + any padding the user configured).
 			const toolbarReserve = 140;
 			const viewportH = window.innerHeight;
 			const safeBottom = viewportH - toolbarReserve;
 
-			// Already visible in the safe zone — no scroll needed
 			if (rect.top >= 60 && rect.bottom <= safeBottom) return;
 
 			const scrollContainer = this.findScrollContainer(
@@ -366,7 +294,6 @@ export class Highlighter {
 			);
 			if (scrollContainer) {
 				const containerRect = scrollContainer.getBoundingClientRect();
-				// Position sentence in the upper quarter of the viewport
 				const scrollTop =
 					scrollContainer.scrollTop +
 					rect.top -
@@ -389,9 +316,7 @@ export class Highlighter {
 
 	private getScrollContainer(): HTMLElement | null {
 		if (!this.container) return null;
-		return (
-			this.findScrollContainer(this.container) ?? this.container
-		);
+		return this.findScrollContainer(this.container) ?? this.container;
 	}
 
 	private findScrollContainer(el: HTMLElement): HTMLElement | null {
@@ -409,4 +334,9 @@ export class Highlighter {
 		}
 		return null;
 	}
+}
+
+/** Escape special regex characters in a string */
+function escapeRegex(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
