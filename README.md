@@ -145,6 +145,12 @@ Planned improvements (contributions welcome):
 - **Save and resume progress** — Remember the last playback position per file so you can pick up where you left off when returning to a document.
 - **Word-level highlighting** — Show both the current chunk/section and the individual word being spoken (similar to Speechify). Would require word-level timestamp alignment from the TTS response or client-side audio analysis.
 - **MP3 export** — Export the full document as an MP3 file for offline listening. Generate audio for all chunks, concatenate with crossfade, and save to the vault.
+- **Offline pregeneration and section-level caching** — A "Download for offline listening" command that pre-generates the entire document's audio using large chunk sizes (max API limit) for the best possible prosody and tonal consistency across sections. The generated audio is cached per-section in the vault (keyed by section text hash + backend + voice), so:
+  - Playback uses the pre-generated high-quality audio instead of making live API calls.
+  - If a section of the document changes, only that section's audio is re-generated — not the entire file.
+  - Files can be listened to offline (airplane, commute, etc.) with no API connectivity required.
+  - The interactive TTS reader would detect that pre-generated audio exists for a section and use it automatically, falling back to live API calls for sections that haven't been cached or have changed.
+  - This effectively gives you audiobook-quality prosody (from large chunks) with the interactive navigation of live TTS (skip to any section), combining the best of both approaches.
 
 ## License
 

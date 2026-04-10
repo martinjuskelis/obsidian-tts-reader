@@ -245,6 +245,12 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					),
 				"bufferAheadDeepinfra",
 			);
+
+			this.addResetAll(containerEl, [
+				"deepinfraModel",
+				"deepinfraVoice",
+				"bufferAheadDeepinfra",
+			]);
 		}
 
 		// --- OpenAI settings ---
@@ -341,6 +347,13 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					),
 				"bufferAheadOpenai",
 			);
+
+			this.addResetAll(containerEl, [
+				"openaiModel",
+				"openaiVoice",
+				"chunkSizeOpenai",
+				"bufferAheadOpenai",
+			]);
 		}
 
 		// --- Gemini settings ---
@@ -424,6 +437,12 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					),
 				"bufferAheadGemini",
 			);
+
+			this.addResetAll(containerEl, [
+				"geminiVoice",
+				"chunkSizeGemini",
+				"bufferAheadGemini",
+			]);
 		}
 
 		// --- Text extraction ---
@@ -519,17 +538,20 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 	}
 
 	/**
-	 * Add a reset-to-default button on a Setting.
-	 * When clicked, resets the specified settings key to its default and re-renders.
+	 * Add a reset-to-default button on a Setting, but only if the current
+	 * value differs from the default.
 	 */
 	private addReset<K extends keyof TTSReaderSettings>(
 		setting: Setting,
 		key: K,
 	): Setting {
+		if (this.plugin.settings[key] === DEFAULT_SETTINGS[key]) {
+			return setting;
+		}
 		return setting.addExtraButton((btn) =>
 			btn
 				.setIcon("reset")
-				.setTooltip("Reset to default")
+				.setTooltip(`Reset to default (${DEFAULT_SETTINGS[key]})`)
 				.onClick(async () => {
 					this.plugin.stopPlaybackPublic();
 					(this.plugin.settings as any)[key] = DEFAULT_SETTINGS[key];
@@ -537,6 +559,37 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					this.display();
 				}),
 		);
+	}
+
+	/**
+	 * Add a "Reset all settings for this backend" button.
+	 */
+	private addResetAll(
+		containerEl: HTMLElement,
+		keys: (keyof TTSReaderSettings)[],
+	): void {
+		const anyChanged = keys.some(
+			(k) => this.plugin.settings[k] !== DEFAULT_SETTINGS[k],
+		);
+		if (!anyChanged) return;
+
+		new Setting(containerEl)
+			.setName("Reset all to defaults")
+			.setDesc("Reset all settings for this backend to their defaults.")
+			.addButton((btn) =>
+				btn
+					.setButtonText("Reset all")
+					.setWarning()
+					.onClick(async () => {
+						this.plugin.stopPlaybackPublic();
+						for (const k of keys) {
+							(this.plugin.settings as any)[k] =
+								DEFAULT_SETTINGS[k];
+						}
+						await this.plugin.saveSettings();
+						this.display();
+					}),
+			);
 	}
 
 	private async getWebSpeechVoices(): Promise<VoiceOption[]> {
