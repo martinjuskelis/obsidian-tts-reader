@@ -1,13 +1,20 @@
+export type Backend = "webspeech" | "deepinfra" | "openai" | "gemini";
+
 export interface TTSReaderSettings {
-	backend: "webspeech" | "deepinfra";
+	backend: Backend;
 	webSpeechVoice: string;
 	speed: number;
 	deepinfraApiKey: string;
 	deepinfraModel: string;
+	deepinfraVoice: string;
+	openaiApiKey: string;
+	openaiModel: string;
+	openaiVoice: string;
+	geminiApiKey: string;
+	geminiVoice: string;
 	skipCodeBlocks: boolean;
 	skipFrontmatter: boolean;
 	autoScroll: boolean;
-	deepinfraVoice: string;
 	toolbarPadding: number;
 	bufferAhead: number;
 	editorLineIndicator: boolean;
@@ -21,6 +28,11 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	deepinfraApiKey: "",
 	deepinfraModel: "hexgrad/Kokoro-82M",
 	deepinfraVoice: "af_heart",
+	openaiApiKey: "",
+	openaiModel: "tts-1",
+	openaiVoice: "nova",
+	geminiApiKey: "",
+	geminiVoice: "Kore",
 	skipCodeBlocks: true,
 	skipFrontmatter: true,
 	autoScroll: true,
@@ -132,6 +144,41 @@ export const DEEPINFRA_MODELS: DeepInfraModelDef[] = [
 			},
 		],
 	},
+];
+
+export interface OpenAIModelDef {
+	id: string;
+	name: string;
+}
+
+export const OPENAI_MODELS: OpenAIModelDef[] = [
+	{ id: "tts-1", name: "TTS-1 — fast, $15/M chars" },
+	{ id: "tts-1-hd", name: "TTS-1 HD — higher fidelity, $30/M chars" },
+	{ id: "gpt-4o-mini-tts", name: "GPT-4o Mini TTS — newest, style control" },
+];
+
+export const OPENAI_VOICES: { id: string; name: string }[] = [
+	{ id: "alloy", name: "Alloy (neutral)" },
+	{ id: "ash", name: "Ash (warm M)" },
+	{ id: "ballad", name: "Ballad (soft)" },
+	{ id: "coral", name: "Coral (warm F)" },
+	{ id: "echo", name: "Echo (clear M)" },
+	{ id: "fable", name: "Fable (narrative)" },
+	{ id: "nova", name: "Nova (friendly F) \u2605" },
+	{ id: "onyx", name: "Onyx (deep M)" },
+	{ id: "sage", name: "Sage (calm)" },
+	{ id: "shimmer", name: "Shimmer (bright F)" },
+];
+
+export const GEMINI_VOICES: { id: string; name: string }[] = [
+	{ id: "Kore", name: "Kore (F, clear) \u2605" },
+	{ id: "Aoede", name: "Aoede (F, warm)" },
+	{ id: "Charon", name: "Charon (M, deep)" },
+	{ id: "Fenrir", name: "Fenrir (M, strong)" },
+	{ id: "Leda", name: "Leda (F, gentle)" },
+	{ id: "Orus", name: "Orus (M, smooth)" },
+	{ id: "Puck", name: "Puck (M, lively)" },
+	{ id: "Zephyr", name: "Zephyr (F, breathy)" },
 ];
 
 export const SPEED_MIN = 0.5;

@@ -2,9 +2,13 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type TTSReaderPlugin from "./main";
 import {
 	DEEPINFRA_MODELS,
+	OPENAI_MODELS,
+	OPENAI_VOICES,
+	GEMINI_VOICES,
 	SPEED_MIN,
 	SPEED_MAX,
 	SPEED_STEP,
+	type Backend,
 	type VoiceOption,
 } from "./types";
 
@@ -27,13 +31,13 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 			.addDropdown((d) =>
 				d
 					.addOption("webspeech", "Web Speech API (free, built-in)")
-					.addOption("deepinfra", "DeepInfra (cloud, better quality)")
+					.addOption("deepinfra", "DeepInfra (cloud)")
+					.addOption("openai", "OpenAI (cloud)")
+					.addOption("gemini", "Google Gemini (cloud, multilingual)")
 					.setValue(this.plugin.settings.backend)
 					.onChange(async (v) => {
 						this.plugin.stopPlaybackPublic();
-						this.plugin.settings.backend = v as
-							| "webspeech"
-							| "deepinfra";
+						this.plugin.settings.backend = v as Backend;
 						await this.plugin.saveSettings();
 						this.display();
 					}),
@@ -76,6 +80,16 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 		// --- DeepInfra settings ---
 		if (this.plugin.settings.backend === "deepinfra") {
+			const privacyNote = containerEl.createEl("p", {
+				cls: "setting-item-description",
+			});
+			privacyNote.style.padding = "8px 12px";
+			privacyNote.style.borderLeft = "3px solid var(--text-warning)";
+			privacyNote.style.marginBottom = "12px";
+			privacyNote.textContent =
+				"Privacy: DeepInfra does not store or train on your data. " +
+				"They may temporarily store inputs/outputs for debugging purposes for a limited period.";
+
 			new Setting(containerEl)
 				.setName("DeepInfra API key")
 				.setDesc("Your DeepInfra API key for cloud TTS.")
@@ -208,6 +222,107 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 							}),
 					);
 			}
+		}
+
+		// --- OpenAI settings ---
+		if (this.plugin.settings.backend === "openai") {
+			const privacyNote = containerEl.createEl("p", {
+				cls: "setting-item-description",
+			});
+			privacyNote.style.padding = "8px 12px";
+			privacyNote.style.borderLeft = "3px solid var(--text-warning)";
+			privacyNote.style.marginBottom = "12px";
+			privacyNote.textContent =
+				"Privacy: OpenAI retains API data for 30 days for abuse monitoring, then deletes it. Your data is not used for model training.";
+
+			new Setting(containerEl)
+				.setName("OpenAI API key")
+				.setDesc("Your OpenAI API key.")
+				.addText((t) =>
+					t
+						.setPlaceholder("sk-...")
+						.setValue(this.plugin.settings.openaiApiKey)
+						.then((t) => (t.inputEl.type = "password"))
+						.onChange(async (v) => {
+							this.plugin.stopPlaybackPublic();
+							this.plugin.settings.openaiApiKey = v;
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			new Setting(containerEl)
+				.setName("Model")
+				.setDesc("TTS-1 is faster, TTS-1 HD is higher quality. GPT-4o Mini TTS is newest with style control.")
+				.addDropdown((d) => {
+					for (const m of OPENAI_MODELS) {
+						d.addOption(m.id, m.name);
+					}
+					d.setValue(this.plugin.settings.openaiModel);
+					d.onChange(async (v) => {
+						this.plugin.stopPlaybackPublic();
+						this.plugin.settings.openaiModel = v;
+						await this.plugin.saveSettings();
+					});
+				});
+
+			new Setting(containerEl)
+				.setName("Voice")
+				.setDesc("OpenAI voice. All voices support multilingual output.")
+				.addDropdown((d) => {
+					for (const v of OPENAI_VOICES) {
+						d.addOption(v.id, v.name);
+					}
+					d.setValue(this.plugin.settings.openaiVoice);
+					d.onChange(async (v) => {
+						this.plugin.stopPlaybackPublic();
+						this.plugin.settings.openaiVoice = v;
+						await this.plugin.saveSettings();
+					});
+				});
+		}
+
+		// --- Gemini settings ---
+		if (this.plugin.settings.backend === "gemini") {
+			const privacyNote = containerEl.createEl("p", {
+				cls: "setting-item-description",
+			});
+			privacyNote.style.padding = "8px 12px";
+			privacyNote.style.borderLeft = "3px solid var(--text-warning)";
+			privacyNote.style.marginBottom = "12px";
+			privacyNote.textContent =
+				"Privacy: Google may use free-tier API data to improve their models. " +
+				"Paid-tier data has better protections but is still subject to Google's terms. " +
+				"Get an API key from Google AI Studio (aistudio.google.com).";
+
+			new Setting(containerEl)
+				.setName("Gemini API key")
+				.setDesc("API key from Google AI Studio.")
+				.addText((t) =>
+					t
+						.setPlaceholder("AI...")
+						.setValue(this.plugin.settings.geminiApiKey)
+						.then((t) => (t.inputEl.type = "password"))
+						.onChange(async (v) => {
+							this.plugin.stopPlaybackPublic();
+							this.plugin.settings.geminiApiKey = v;
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			new Setting(containerEl)
+				.setName("Voice")
+				.setDesc("Gemini voice. All voices support 50+ languages including Lithuanian, Chinese, Japanese, and more.")
+				.addDropdown((d) => {
+					for (const v of GEMINI_VOICES) {
+						d.addOption(v.id, v.name);
+					}
+					d.setValue(this.plugin.settings.geminiVoice);
+					d.onChange(async (v) => {
+						this.plugin.stopPlaybackPublic();
+						this.plugin.settings.geminiVoice = v;
+						await this.plugin.saveSettings();
+					});
+				});
 		}
 
 		// --- Text extraction ---

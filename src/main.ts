@@ -15,6 +15,8 @@ import { buildSentenceOffsets, findSentenceAtOffset } from "./position-map";
 import { ttsLineField, updateTTSLineIndicator } from "./editor-line-indicator";
 import { WebSpeechEngine } from "./web-speech";
 import { DeepInfraEngine } from "./deepinfra";
+import { OpenAIEngine } from "./openai-tts";
+import { GeminiTTSEngine } from "./gemini-tts";
 import { Highlighter } from "./highlighter";
 import { PlaybackController } from "./playback";
 import { Toolbar } from "./toolbar";
@@ -25,6 +27,8 @@ export default class TTSReaderPlugin extends Plugin {
 	private toolbar: Toolbar | null = null;
 	private webSpeechEngine: WebSpeechEngine | null = null;
 	private deepInfraEngine: DeepInfraEngine | null = null;
+	private openaiEngine: OpenAIEngine | null = null;
+	private geminiEngine: GeminiTTSEngine | null = null;
 	private highlighter: Highlighter | null = null;
 	private clickHandler: ((e: MouseEvent) => void) | null = null;
 	private clickTarget: HTMLElement | null = null;
@@ -358,9 +362,51 @@ export default class TTSReaderPlugin extends Plugin {
 			return this.deepInfraEngine;
 		}
 
+		if (this.settings.backend === "openai") {
+			if (!this.settings.openaiApiKey) {
+				new Notice(
+					"TTS Reader: OpenAI API key not set. " +
+						"Please configure it in Settings > TTS Reader.",
+				);
+				return null;
+			}
+			if (!this.openaiEngine) {
+				this.openaiEngine = new OpenAIEngine(
+					this.settings.openaiApiKey,
+				);
+			} else {
+				this.openaiEngine.updateConfig(this.settings.openaiApiKey);
+			}
+			this.openaiEngine.model = this.settings.openaiModel;
+			this.openaiEngine.voice = this.settings.openaiVoice;
+			this.openaiEngine.debug = this.settings.debug;
+			return this.openaiEngine;
+		}
+
+		if (this.settings.backend === "gemini") {
+			if (!this.settings.geminiApiKey) {
+				new Notice(
+					"TTS Reader: Gemini API key not set. " +
+						"Get one from aistudio.google.com and configure it in Settings > TTS Reader.",
+				);
+				return null;
+			}
+			if (!this.geminiEngine) {
+				this.geminiEngine = new GeminiTTSEngine(
+					this.settings.geminiApiKey,
+				);
+			} else {
+				this.geminiEngine.updateConfig(this.settings.geminiApiKey);
+			}
+			this.geminiEngine.voice = this.settings.geminiVoice;
+			this.geminiEngine.debug = this.settings.debug;
+			return this.geminiEngine;
+		}
+
+		// webspeech fallback
 		if (typeof speechSynthesis === "undefined") {
 			new Notice(
-				"TTS Reader: Web Speech API is not available on this platform. On Android, use the DeepInfra backend instead (Settings > TTS Reader).",
+				"TTS Reader: Web Speech API is not available on this platform. On Android, use a cloud backend instead (Settings > TTS Reader).",
 				10000,
 			);
 			return null;
