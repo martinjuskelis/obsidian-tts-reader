@@ -47,8 +47,8 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	bufferAheadDeepinfra: 5,
 	bufferAheadOpenai: 3,
 	bufferAheadGemini: 3,
-	chunkSizeOpenai: 3500,
-	chunkSizeGemini: 4000,
+	chunkSizeOpenai: 500,
+	chunkSizeGemini: 500,
 	editorLineIndicator: true,
 	debug: false,
 };
