@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type TTSReaderPlugin from "./main";
 import {
+	DEFAULT_SETTINGS,
 	DEEPINFRA_MODELS,
 	OPENAI_MODELS,
 	OPENAI_VOICES,
@@ -9,6 +10,7 @@ import {
 	SPEED_MAX,
 	SPEED_STEP,
 	type Backend,
+	type TTSReaderSettings,
 	type VoiceOption,
 } from "./types";
 
@@ -223,21 +225,24 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					);
 			}
 
-			new Setting(containerEl)
-				.setName("Buffer ahead")
-				.setDesc(
-					"Sentences to pre-fetch. Kokoro is fast (2\u20135). Slower models like Orpheus need 5\u201310.",
-				)
-				.addSlider((s) =>
-					s
-						.setLimits(0, 20, 1)
-						.setValue(this.plugin.settings.bufferAheadDeepinfra)
-						.setDynamicTooltip()
-						.onChange(async (v) => {
-							this.plugin.settings.bufferAheadDeepinfra = v;
-							await this.plugin.saveSettings();
-						}),
-				);
+			this.addReset(
+				new Setting(containerEl)
+					.setName("Buffer ahead")
+					.setDesc(
+						"Sentences to pre-fetch. Kokoro is fast (2\u20135). Slower models like Orpheus need 5\u201310.",
+					)
+					.addSlider((s) =>
+						s
+							.setLimits(0, 20, 1)
+							.setValue(this.plugin.settings.bufferAheadDeepinfra)
+							.setDynamicTooltip()
+							.onChange(async (v) => {
+								this.plugin.settings.bufferAheadDeepinfra = v;
+								await this.plugin.saveSettings();
+							}),
+					),
+				"bufferAheadDeepinfra",
+			);
 		}
 
 		// --- OpenAI settings ---
@@ -296,21 +301,43 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					});
 				});
 
-			new Setting(containerEl)
-				.setName("Buffer ahead")
-				.setDesc(
-					"Sentences to pre-fetch while the current one plays. OpenAI is moderately fast (5\u201310).",
-				)
-				.addSlider((s) =>
-					s
-						.setLimits(0, 20, 1)
-						.setValue(this.plugin.settings.bufferAheadOpenai)
-						.setDynamicTooltip()
-						.onChange(async (v) => {
-							this.plugin.settings.bufferAheadOpenai = v;
-							await this.plugin.saveSettings();
-						}),
-				);
+			this.addReset(
+				new Setting(containerEl)
+					.setName("Buffer ahead")
+					.setDesc(
+						"Sentences to pre-fetch while the current one plays. OpenAI is moderately fast (5\u201310).",
+					)
+					.addSlider((s) =>
+						s
+							.setLimits(0, 20, 1)
+							.setValue(this.plugin.settings.bufferAheadOpenai)
+							.setDynamicTooltip()
+							.onChange(async (v) => {
+								this.plugin.settings.bufferAheadOpenai = v;
+								await this.plugin.saveSettings();
+							}),
+					),
+				"bufferAheadOpenai",
+			);
+
+			this.addReset(
+				new Setting(containerEl)
+					.setName("Min chunk size")
+					.setDesc(
+						"Minimum characters per TTS request. Short text (headers, single words) is merged with the next sentence to avoid distortion. 0 = no merging.",
+					)
+					.addSlider((s) =>
+						s
+							.setLimits(0, 500, 25)
+							.setValue(this.plugin.settings.minChunkCharsOpenai)
+							.setDynamicTooltip()
+							.onChange(async (v) => {
+								this.plugin.settings.minChunkCharsOpenai = v;
+								await this.plugin.saveSettings();
+							}),
+					),
+				"minChunkCharsOpenai",
+			);
 		}
 
 		// --- Gemini settings ---
@@ -356,21 +383,43 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					});
 				});
 
-			new Setting(containerEl)
-				.setName("Buffer ahead")
-				.setDesc(
-					"Sentences to pre-fetch. Gemini is slower per request so a higher buffer (10\u201320) prevents gaps.",
-				)
-				.addSlider((s) =>
-					s
-						.setLimits(0, 20, 1)
-						.setValue(this.plugin.settings.bufferAheadGemini)
-						.setDynamicTooltip()
-						.onChange(async (v) => {
-							this.plugin.settings.bufferAheadGemini = v;
-							await this.plugin.saveSettings();
-						}),
-				);
+			this.addReset(
+				new Setting(containerEl)
+					.setName("Buffer ahead")
+					.setDesc(
+						"Sentences to pre-fetch. Gemini is slower per request so a higher buffer (10\u201320) prevents gaps.",
+					)
+					.addSlider((s) =>
+						s
+							.setLimits(0, 20, 1)
+							.setValue(this.plugin.settings.bufferAheadGemini)
+							.setDynamicTooltip()
+							.onChange(async (v) => {
+								this.plugin.settings.bufferAheadGemini = v;
+								await this.plugin.saveSettings();
+							}),
+					),
+				"bufferAheadGemini",
+			);
+
+			this.addReset(
+				new Setting(containerEl)
+					.setName("Min chunk size")
+					.setDesc(
+						"Minimum characters per TTS request. Short text (headers, single words) is merged with the next sentence to avoid distortion and tone shifts. 0 = no merging.",
+					)
+					.addSlider((s) =>
+						s
+							.setLimits(0, 500, 25)
+							.setValue(this.plugin.settings.minChunkCharsGemini)
+							.setDynamicTooltip()
+							.onChange(async (v) => {
+								this.plugin.settings.minChunkCharsGemini = v;
+								await this.plugin.saveSettings();
+							}),
+					),
+				"minChunkCharsGemini",
+			);
 		}
 
 		// --- Text extraction ---
@@ -463,6 +512,27 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+	}
+
+	/**
+	 * Add a reset-to-default button on a Setting.
+	 * When clicked, resets the specified settings key to its default and re-renders.
+	 */
+	private addReset<K extends keyof TTSReaderSettings>(
+		setting: Setting,
+		key: K,
+	): Setting {
+		return setting.addExtraButton((btn) =>
+			btn
+				.setIcon("reset")
+				.setTooltip("Reset to default")
+				.onClick(async () => {
+					this.plugin.stopPlaybackPublic();
+					(this.plugin.settings as any)[key] = DEFAULT_SETTINGS[key];
+					await this.plugin.saveSettings();
+					this.display();
+				}),
+		);
 	}
 
 	private async getWebSpeechVoices(): Promise<VoiceOption[]> {

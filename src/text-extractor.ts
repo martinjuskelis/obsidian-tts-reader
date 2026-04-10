@@ -101,6 +101,41 @@ export function extractSentences(
 	return results;
 }
 
+/**
+ * Merge consecutive short sentences so each chunk sent to the TTS API
+ * has at least `minChars` characters. This prevents single-word headers
+ * from producing silence/distortion and gives the model enough context
+ * for consistent tone across sentence boundaries.
+ */
+export function mergeShortSentences(
+	sentences: SentenceInfo[],
+	minChars: number,
+): SentenceInfo[] {
+	if (minChars <= 0 || sentences.length === 0) return sentences;
+
+	const merged: SentenceInfo[] = [];
+	let pending = "";
+	let pendingOcc = 0;
+
+	for (let i = 0; i < sentences.length; i++) {
+		const s = sentences[i];
+		if (pending.length === 0) {
+			pending = s.text;
+			pendingOcc = s.occurrence;
+		} else {
+			pending += " " + s.text;
+		}
+
+		// Flush if we've reached the minimum or this is the last sentence
+		if (pending.length >= minChars || i === sentences.length - 1) {
+			merged.push({ text: pending, occurrence: pendingOcc });
+			pending = "";
+		}
+	}
+
+	return merged;
+}
+
 // --- Sentence splitter (unchanged from before) ---
 
 const ABBREVIATIONS = new Set([

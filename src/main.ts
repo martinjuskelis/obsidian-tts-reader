@@ -10,7 +10,7 @@ import {
 	type TTSEngine,
 } from "./types";
 import { TTSReaderSettingTab } from "./settings";
-import { extractSentences } from "./text-extractor";
+import { extractSentences, mergeShortSentences } from "./text-extractor";
 import { buildSentenceOffsets, findSentenceAtOffset } from "./position-map";
 import { ttsLineField, updateTTSLineIndicator } from "./editor-line-indicator";
 import { WebSpeechEngine } from "./web-speech";
@@ -244,11 +244,19 @@ export default class TTSReaderPlugin extends Plugin {
 		const isEditorMode = mode !== "preview";
 
 		const markdown = view.getViewData();
-		const sentences = extractSentences(
+		let sentences = extractSentences(
 			markdown,
 			this.settings.skipCodeBlocks,
 			this.settings.skipFrontmatter,
 		);
+
+		// Merge short sentences for cloud backends to avoid distortion
+		// on tiny inputs and maintain consistent tone across chunks
+		const minChars = this.getMinChunkChars();
+		if (minChars > 0) {
+			sentences = mergeShortSentences(sentences, minChars);
+		}
+
 		if (sentences.length === 0) {
 			new Notice("TTS Reader: No readable text found in this document.");
 			return;
@@ -503,6 +511,7 @@ export default class TTSReaderPlugin extends Plugin {
 
 	private setupClickToJump(previewEl: HTMLElement): void {
 		this.clickHandler = (e: MouseEvent) => {
+			try {
 			if (!this.controller || this.controller.state === "idle") return;
 			if ((e.target as HTMLElement)?.closest(".tts-reader-toolbar"))
 				return;
@@ -607,6 +616,9 @@ export default class TTSReaderPlugin extends Plugin {
 			);
 			if (idx >= 0) {
 				this.controller.jumpTo(idx, this.settings.speed);
+			}
+			} catch (err) {
+				console.error("TTS Reader: click-to-jump error:", err);
 			}
 		};
 
@@ -713,6 +725,7 @@ export default class TTSReaderPlugin extends Plugin {
 
 	private setupEditorClickToJump(view: MarkdownView): void {
 		this.editorClickHandler = (e: MouseEvent) => {
+			try {
 			if (!this.controller || this.controller.state === "idle") return;
 			if ((e.target as HTMLElement)?.closest(".tts-reader-toolbar"))
 				return;
@@ -763,6 +776,9 @@ export default class TTSReaderPlugin extends Plugin {
 					return;
 				}
 			}
+			} catch (err) {
+				console.error("TTS Reader: editor click-to-jump error:", err);
+			}
 		};
 
 		const editorEl = view.contentEl.querySelector(
@@ -794,6 +810,17 @@ export default class TTSReaderPlugin extends Plugin {
 		}
 		this.editorClickHandler = null;
 		this.editorClickTarget = null;
+	}
+
+	private getMinChunkChars(): number {
+		switch (this.settings.backend) {
+			case "openai":
+				return this.settings.minChunkCharsOpenai;
+			case "gemini":
+				return this.settings.minChunkCharsGemini;
+			default:
+				return 0; // webspeech and deepinfra handle short text fine
+		}
 	}
 
 	private getBufferAhead(): number {

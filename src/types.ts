@@ -21,6 +21,8 @@ export interface TTSReaderSettings {
 	bufferAheadDeepinfra: number;
 	bufferAheadOpenai: number;
 	bufferAheadGemini: number;
+	minChunkCharsOpenai: number;
+	minChunkCharsGemini: number;
 	editorLineIndicator: boolean;
 	debug: boolean;
 }
@@ -45,6 +47,8 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	bufferAheadDeepinfra: 5,
 	bufferAheadOpenai: 8,
 	bufferAheadGemini: 15,
+	minChunkCharsOpenai: 100,
+	minChunkCharsGemini: 200,
 	editorLineIndicator: true,
 	debug: false,
 };
