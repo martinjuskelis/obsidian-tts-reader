@@ -1,28 +1,70 @@
 export type Backend = "webspeech" | "deepinfra" | "openai" | "gemini";
 
+// ---------------------------------------------------------------------------
+// Per-model settings
+// ---------------------------------------------------------------------------
+
+export interface ModelSettings {
+	voice: string;
+	bufferAhead: number;
+	/** Max chars per TTS chunk. 0 = sentence-level (DeepInfra). */
+	chunkSize: number;
+}
+
+/** Default settings per model ID. */
+export const MODEL_DEFAULTS: Record<string, ModelSettings> = {
+	// --- DeepInfra ---
+	"hexgrad/Kokoro-82M": { voice: "af_heart", bufferAhead: 3, chunkSize: 0 },
+	"canopylabs/orpheus-3b-0.1-ft": { voice: "tara", bufferAhead: 5, chunkSize: 0 },
+	"Qwen/Qwen3-TTS": { voice: "Vivian", bufferAhead: 6, chunkSize: 0 },
+	"ResembleAI/chatterbox": { voice: "scarlett", bufferAhead: 5, chunkSize: 0 },
+	"Qwen/Qwen3-TTS-VoiceDesign": {
+		voice: "A composed, clear adult female voice with a neutral American accent, steady pace, and warm tone",
+		bufferAhead: 6,
+		chunkSize: 0,
+	},
+	// --- OpenAI ---
+	"tts-1": { voice: "nova", bufferAhead: 3, chunkSize: 200 },
+	"tts-1-hd": { voice: "nova", bufferAhead: 4, chunkSize: 400 },
+	"gpt-4o-mini-tts": { voice: "nova", bufferAhead: 3, chunkSize: 200 },
+	// --- Gemini ---
+	"gemini-2.5-flash-preview-tts": { voice: "Zephyr", bufferAhead: 3, chunkSize: 200 },
+};
+
+/** Fallback for unknown models. */
+const FALLBACK_MODEL_SETTINGS: ModelSettings = {
+	voice: "",
+	bufferAhead: 5,
+	chunkSize: 200,
+};
+
+/** Get defaults for a model, falling back to generic defaults. */
+export function getModelDefaults(modelId: string): ModelSettings {
+	return MODEL_DEFAULTS[modelId] ?? FALLBACK_MODEL_SETTINGS;
+}
+
+// ---------------------------------------------------------------------------
+// Plugin settings
+// ---------------------------------------------------------------------------
+
 export interface TTSReaderSettings {
 	backend: Backend;
 	webSpeechVoice: string;
 	speed: number;
+	// API keys
 	deepinfraApiKey: string;
-	deepinfraModel: string;
-	deepinfraVoice: string;
 	openaiApiKey: string;
-	openaiModel: string;
-	openaiVoice: string;
 	geminiApiKey: string;
-	geminiVoice: string;
+	// Currently selected model per backend
+	deepinfraModel: string;
+	openaiModel: string;
+	// Per-model settings map (model ID → settings)
+	modelSettings: Record<string, Partial<ModelSettings>>;
+	// Global settings
 	skipCodeBlocks: boolean;
 	skipFrontmatter: boolean;
 	autoScroll: boolean;
 	toolbarPadding: number;
-	/** @deprecated Use per-backend bufferAhead fields instead */
-	bufferAhead: number;
-	bufferAheadDeepinfra: number;
-	bufferAheadOpenai: number;
-	bufferAheadGemini: number;
-	chunkSizeOpenai: number;
-	chunkSizeGemini: number;
 	editorLineIndicator: boolean;
 	debug: boolean;
 }
@@ -32,33 +74,121 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	webSpeechVoice: "",
 	speed: 1.0,
 	deepinfraApiKey: "",
-	deepinfraModel: "hexgrad/Kokoro-82M",
-	deepinfraVoice: "af_heart",
 	openaiApiKey: "",
-	openaiModel: "tts-1",
-	openaiVoice: "nova",
 	geminiApiKey: "",
-	geminiVoice: "Kore",
+	deepinfraModel: "hexgrad/Kokoro-82M",
+	openaiModel: "tts-1",
+	modelSettings: {},
 	skipCodeBlocks: true,
 	skipFrontmatter: true,
 	autoScroll: true,
 	toolbarPadding: 0,
-	bufferAhead: 5,
-	bufferAheadDeepinfra: 5,
-	bufferAheadOpenai: 3,
-	bufferAheadGemini: 3,
-	chunkSizeOpenai: 200,
-	chunkSizeGemini: 200,
 	editorLineIndicator: true,
 	debug: false,
 };
 
+/**
+ * Get a resolved model setting — user override if set, otherwise model default.
+ */
+export function getModelSetting<K extends keyof ModelSettings>(
+	settings: TTSReaderSettings,
+	modelId: string,
+	key: K,
+): ModelSettings[K] {
+	const userOverride = settings.modelSettings[modelId]?.[key];
+	if (userOverride !== undefined) return userOverride as ModelSettings[K];
+	return getModelDefaults(modelId)[key];
+}
+
+/**
+ * Set a per-model setting override.
+ */
+export function setModelSetting<K extends keyof ModelSettings>(
+	settings: TTSReaderSettings,
+	modelId: string,
+	key: K,
+	value: ModelSettings[K],
+): void {
+	if (!settings.modelSettings[modelId]) {
+		settings.modelSettings[modelId] = {};
+	}
+	settings.modelSettings[modelId][key] = value;
+}
+
+/**
+ * Reset a single per-model setting to its default.
+ */
+export function resetModelSetting(
+	settings: TTSReaderSettings,
+	modelId: string,
+	key: keyof ModelSettings,
+): void {
+	const overrides = settings.modelSettings[modelId];
+	if (overrides) {
+		delete overrides[key];
+		if (Object.keys(overrides).length === 0) {
+			delete settings.modelSettings[modelId];
+		}
+	}
+}
+
+/**
+ * Reset ALL per-model settings for a specific model.
+ */
+export function resetAllModelSettings(
+	settings: TTSReaderSettings,
+	modelId: string,
+): void {
+	delete settings.modelSettings[modelId];
+}
+
+/**
+ * Check if a model setting differs from its default.
+ */
+export function isModelSettingChanged(
+	settings: TTSReaderSettings,
+	modelId: string,
+	key: keyof ModelSettings,
+): boolean {
+	return settings.modelSettings[modelId]?.[key] !== undefined;
+}
+
+/**
+ * Check if ANY model setting differs from defaults.
+ */
+export function hasAnyModelSettingChanged(
+	settings: TTSReaderSettings,
+	modelId: string,
+): boolean {
+	const overrides = settings.modelSettings[modelId];
+	return !!overrides && Object.keys(overrides).length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Get the currently active model ID
+// ---------------------------------------------------------------------------
+
+export function getActiveModelId(settings: TTSReaderSettings): string {
+	switch (settings.backend) {
+		case "deepinfra":
+			return settings.deepinfraModel;
+		case "openai":
+			return settings.openaiModel;
+		case "gemini":
+			return "gemini-2.5-flash-preview-tts";
+		default:
+			return "";
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Model/voice definitions
+// ---------------------------------------------------------------------------
+
 export interface DeepInfraModelDef {
 	id: string;
 	name: string;
-	/** API parameter name for the voice field */
 	voiceParam: string;
-	/** If true, the voice field is free-text (describe the voice) */
 	freeTextVoice?: boolean;
 	voices: { id: string; name: string }[];
 }
@@ -118,7 +248,7 @@ export const DEEPINFRA_MODELS: DeepInfraModelDef[] = [
 		name: "Qwen3 TTS \u2014 multilingual, ~$20/M chars",
 		voiceParam: "voice",
 		voices: [
-			{ id: "Vivian", name: "Vivian (F, English)" },
+			{ id: "Vivian", name: "Vivian (F, English) \u2605" },
 			{ id: "Serena", name: "Serena (F, English)" },
 			{ id: "Dylan", name: "Dylan (M, English)" },
 			{ id: "Eric", name: "Eric (M, English)" },
@@ -134,7 +264,7 @@ export const DEEPINFRA_MODELS: DeepInfraModelDef[] = [
 		name: "Chatterbox \u2014 emotion control, ~$1/M chars",
 		voiceParam: "voice",
 		voices: [
-			{ id: "scarlett", name: "Scarlett (F)" },
+			{ id: "scarlett", name: "Scarlett (F) \u2605" },
 			{ id: "olivia", name: "Olivia (F)" },
 			{ id: "james", name: "James (M)" },
 		],
@@ -146,12 +276,12 @@ export const DEEPINFRA_MODELS: DeepInfraModelDef[] = [
 		freeTextVoice: true,
 		voices: [
 			{
-				id: "A calm, clear adult male voice with a neutral American accent",
-				name: "Calm male (example)",
+				id: "A composed, clear adult female voice with a neutral American accent, steady pace, and warm tone",
+				name: "Clear female (example)",
 			},
 			{
-				id: "A warm, friendly young female voice with a British accent",
-				name: "Warm female (example)",
+				id: "A calm, deep adult male voice with a British accent and measured, authoritative delivery",
+				name: "Authoritative male (example)",
 			},
 		],
 	},
@@ -160,12 +290,13 @@ export const DEEPINFRA_MODELS: DeepInfraModelDef[] = [
 export interface OpenAIModelDef {
 	id: string;
 	name: string;
+	maxChars: number;
 }
 
 export const OPENAI_MODELS: OpenAIModelDef[] = [
-	{ id: "tts-1", name: "TTS-1 — fast, $15/M chars" },
-	{ id: "tts-1-hd", name: "TTS-1 HD — higher fidelity, $30/M chars" },
-	{ id: "gpt-4o-mini-tts", name: "GPT-4o Mini TTS — newest, style control" },
+	{ id: "tts-1", name: "TTS-1 \u2014 fast, $15/M chars", maxChars: 4096 },
+	{ id: "tts-1-hd", name: "TTS-1 HD \u2014 higher fidelity, $30/M chars", maxChars: 4096 },
+	{ id: "gpt-4o-mini-tts", name: "GPT-4o Mini TTS \u2014 newest, style control", maxChars: 1800 },
 ];
 
 export const OPENAI_VOICES: { id: string; name: string }[] = [
@@ -175,27 +306,29 @@ export const OPENAI_VOICES: { id: string; name: string }[] = [
 	{ id: "coral", name: "Coral (warm F)" },
 	{ id: "echo", name: "Echo (clear M)" },
 	{ id: "fable", name: "Fable (narrative)" },
+	{ id: "marin", name: "Marin (clear F, mini-tts)" },
 	{ id: "nova", name: "Nova (friendly F) \u2605" },
 	{ id: "onyx", name: "Onyx (deep M)" },
 	{ id: "sage", name: "Sage (calm)" },
 	{ id: "shimmer", name: "Shimmer (bright F)" },
+	{ id: "verse", name: "Verse (versatile)" },
 ];
 
 export const GEMINI_VOICES: { id: string; name: string }[] = [
-	{ id: "Kore", name: "Kore (F, clear) \u2605" },
+	{ id: "Zephyr", name: "Zephyr (F, bright) \u2605" },
 	{ id: "Aoede", name: "Aoede (F, warm)" },
+	{ id: "Kore", name: "Kore (F, clear)" },
 	{ id: "Charon", name: "Charon (M, deep)" },
 	{ id: "Fenrir", name: "Fenrir (M, strong)" },
 	{ id: "Leda", name: "Leda (F, gentle)" },
 	{ id: "Orus", name: "Orus (M, smooth)" },
 	{ id: "Puck", name: "Puck (M, lively)" },
-	{ id: "Zephyr", name: "Zephyr (F, breathy)" },
 ];
 
 /** Hard API limits (characters). Used as slider maximums. */
 export const OPENAI_MAX_CHARS = 4096;
-export const OPENAI_MINI_MAX_CHARS = 2000;
-export const GEMINI_MAX_CHARS = 8000; // 8192 tokens ≈ 32K chars, but ~5:27 audio wall limits practical use
+export const OPENAI_MINI_MAX_CHARS = 1800;
+export const GEMINI_MAX_CHARS = 8000;
 
 export const SPEED_MIN = 0.5;
 export const SPEED_MAX = 10.0;
@@ -203,7 +336,6 @@ export const SPEED_STEP = 0.25;
 
 export interface SentenceInfo {
 	text: string;
-	/** Which occurrence of this exact text (0-indexed). For unique text, always 0. */
 	occurrence: number;
 }
 

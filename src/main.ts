@@ -2,9 +2,12 @@ import { MarkdownView, Notice, Platform, Plugin, type WorkspaceLeaf } from "obsi
 import { EditorView } from "@codemirror/view";
 import {
 	DEFAULT_SETTINGS,
+	OPENAI_MODELS,
 	SPEED_MIN,
 	SPEED_MAX,
 	SPEED_STEP,
+	getActiveModelId,
+	getModelSetting,
 	type SentenceInfo,
 	type TTSReaderSettings,
 	type TTSEngine,
@@ -361,7 +364,7 @@ export default class TTSReaderPlugin extends Plugin {
 				);
 			}
 			this.deepInfraEngine.debug = this.settings.debug;
-			this.deepInfraEngine.voice = this.settings.deepinfraVoice;
+			this.deepInfraEngine.voice = getModelSetting(this.settings, this.settings.deepinfraModel, "voice");
 			return this.deepInfraEngine;
 		}
 
@@ -381,7 +384,7 @@ export default class TTSReaderPlugin extends Plugin {
 				this.openaiEngine.updateConfig(this.settings.openaiApiKey);
 			}
 			this.openaiEngine.model = this.settings.openaiModel;
-			this.openaiEngine.voice = this.settings.openaiVoice;
+			this.openaiEngine.voice = getModelSetting(this.settings, this.settings.openaiModel, "voice");
 			this.openaiEngine.debug = this.settings.debug;
 			return this.openaiEngine;
 		}
@@ -401,7 +404,7 @@ export default class TTSReaderPlugin extends Plugin {
 			} else {
 				this.geminiEngine.updateConfig(this.settings.geminiApiKey);
 			}
-			this.geminiEngine.voice = this.settings.geminiVoice;
+			this.geminiEngine.voice = getModelSetting(this.settings, "gemini-2.5-flash-preview-tts", "voice");
 			this.geminiEngine.debug = this.settings.debug;
 			return this.geminiEngine;
 		}
@@ -811,33 +814,23 @@ export default class TTSReaderPlugin extends Plugin {
 		this.editorClickTarget = null;
 	}
 
-	/** Max chars per TTS chunk. 0 = one sentence per chunk (legacy). */
+	/** Max chars per TTS chunk. 0 = sentence-level (DeepInfra/WebSpeech). */
 	private getMaxChunkChars(): number {
-		switch (this.settings.backend) {
-			case "openai":
-				// gpt-4o-mini-tts has a lower limit (2000 tokens)
-				if (this.settings.openaiModel === "gpt-4o-mini-tts") {
-					return Math.min(this.settings.chunkSizeOpenai, 1800);
-				}
-				return this.settings.chunkSizeOpenai;
-			case "gemini":
-				return this.settings.chunkSizeGemini;
-			default:
-				return 0; // webspeech and deepinfra: sentence-level is fine
+		const modelId = getActiveModelId(this.settings);
+		if (!modelId) return 0;
+		const chunkSize = getModelSetting(this.settings, modelId, "chunkSize");
+		// Enforce API hard limits
+		if (this.settings.backend === "openai") {
+			const modelDef = OPENAI_MODELS.find((m) => m.id === modelId);
+			if (modelDef) return Math.min(chunkSize, modelDef.maxChars);
 		}
+		return chunkSize;
 	}
 
 	private getBufferAhead(): number {
-		switch (this.settings.backend) {
-			case "deepinfra":
-				return this.settings.bufferAheadDeepinfra;
-			case "openai":
-				return this.settings.bufferAheadOpenai;
-			case "gemini":
-				return this.settings.bufferAheadGemini;
-			default:
-				return this.settings.bufferAhead;
-		}
+		const modelId = getActiveModelId(this.settings);
+		if (!modelId) return 5;
+		return getModelSetting(this.settings, modelId, "bufferAhead");
 	}
 
 	private changeSpeed(delta: number): void {

@@ -11,8 +11,16 @@ import {
 	SPEED_MIN,
 	SPEED_MAX,
 	SPEED_STEP,
+	getActiveModelId,
+	getModelSetting,
+	getModelDefaults,
+	setModelSetting,
+	resetModelSetting,
+	resetAllModelSettings,
+	isModelSettingChanged,
+	hasAnyModelSettingChanged,
 	type Backend,
-	type TTSReaderSettings,
+	type ModelSettings,
 	type VoiceOption,
 } from "./types";
 
@@ -84,15 +92,11 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 		// --- DeepInfra settings ---
 		if (this.plugin.settings.backend === "deepinfra") {
-			const privacyNote = containerEl.createEl("p", {
-				cls: "setting-item-description",
-			});
-			privacyNote.style.padding = "8px 12px";
-			privacyNote.style.borderLeft = "3px solid var(--text-warning)";
-			privacyNote.style.marginBottom = "12px";
-			privacyNote.textContent =
+			this.renderPrivacyNote(
+				containerEl,
 				"Privacy: DeepInfra does not store or train on your data. " +
-				"They may temporarily store inputs/outputs for debugging purposes for a limited period.";
+				"They may temporarily store inputs/outputs for debugging purposes for a limited period.",
+			);
 
 			new Setting(containerEl)
 				.setName("DeepInfra API key")
@@ -139,9 +143,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 			if (isCustom) {
 				new Setting(containerEl)
 					.setName("Custom model ID")
-					.setDesc(
-						"Full model ID from DeepInfra, e.g. hexgrad/Kokoro-82M",
-					)
+					.setDesc("Full model ID from DeepInfra, e.g. hexgrad/Kokoro-82M")
 					.addText((t) =>
 						t
 							.setPlaceholder("owner/model-name")
@@ -154,115 +156,31 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					);
 			}
 
-			// Voice dropdown — shows voices for the selected model
-			const modelDef = DEEPINFRA_MODELS.find(
-				(m) => m.id === this.plugin.settings.deepinfraModel,
-			);
-			if (modelDef && modelDef.voices.length > 0) {
-				const isVoiceDesign = modelDef.freeTextVoice === true;
-				const voiceSetting = new Setting(containerEl)
-					.setName("Voice")
-					.setDesc(
-						isVoiceDesign
-							? "Describe the voice you want in natural language."
-							: `Voice for ${modelDef.name.split(" \u2014")[0]}.`,
-					);
+			const modelId = this.plugin.settings.deepinfraModel;
+			const modelDef = DEEPINFRA_MODELS.find((m) => m.id === modelId);
 
-				if (isVoiceDesign) {
-					voiceSetting.addText((t) =>
-						t
-							.setPlaceholder(
-								"A calm, clear adult male voice...",
-							)
-							.setValue(this.plugin.settings.deepinfraVoice)
-							.onChange(async (v) => {
-								this.plugin.stopPlaybackPublic();
-								this.plugin.settings.deepinfraVoice = v;
-								await this.plugin.saveSettings();
-							}),
-					);
-				} else {
-					voiceSetting.addDropdown((d) => {
-						for (const v of modelDef.voices) {
-							d.addOption(v.id, v.name);
-						}
-						// If current voice isn't in this model's list, pick first
-						const validVoice = modelDef.voices.some(
-							(v) =>
-								v.id ===
-								this.plugin.settings.deepinfraVoice,
-						)
-							? this.plugin.settings.deepinfraVoice
-							: modelDef.voices[0].id;
-						if (
-							validVoice !==
-							this.plugin.settings.deepinfraVoice
-						) {
-							this.plugin.settings.deepinfraVoice =
-								validVoice;
-							this.plugin.saveSettings();
-						}
-						d.setValue(validVoice);
-						d.onChange(async (v) => {
-							this.plugin.stopPlaybackPublic();
-							this.plugin.settings.deepinfraVoice = v;
-							await this.plugin.saveSettings();
-						});
-					});
-				}
+			// Voice
+			if (modelDef && modelDef.voices.length > 0) {
+				this.renderModelVoiceDropdown(containerEl, modelId, modelDef);
 			} else if (!modelDef) {
-				// Custom model — free text voice field
-				new Setting(containerEl)
-					.setName("Voice")
-					.setDesc("Voice ID or name for your custom model.")
-					.addText((t) =>
-						t
-							.setPlaceholder("voice name")
-							.setValue(this.plugin.settings.deepinfraVoice)
-							.onChange(async (v) => {
-								this.plugin.stopPlaybackPublic();
-								this.plugin.settings.deepinfraVoice = v;
-								await this.plugin.saveSettings();
-							}),
-					);
+				this.renderModelVoiceText(containerEl, modelId, "Voice ID or name for your custom model.");
 			}
 
-			this.addReset(
-				new Setting(containerEl)
-					.setName("Buffer ahead")
-					.setDesc(
-						"Sentences to pre-fetch. Kokoro is fast (2\u20135). Slower models like Orpheus need 5\u201310.",
-					)
-					.addSlider((s) =>
-						s
-							.setLimits(0, 20, 1)
-							.setValue(this.plugin.settings.bufferAheadDeepinfra)
-							.setDynamicTooltip()
-							.onChange(async (v) => {
-								this.plugin.settings.bufferAheadDeepinfra = v;
-								await this.plugin.saveSettings();
-							}),
-					),
-				"bufferAheadDeepinfra",
-			);
+			// Buffer ahead
+			this.renderModelSlider(containerEl, modelId, "bufferAhead",
+				"Buffer ahead",
+				"Sentences to pre-fetch. Fast models (Kokoro) need less; slower ones (Orpheus) need more.",
+				0, 20, 1);
 
-			this.addResetAll(containerEl, [
-				"deepinfraModel",
-				"deepinfraVoice",
-				"bufferAheadDeepinfra",
-			]);
+			this.renderResetAll(containerEl, modelId);
 		}
 
 		// --- OpenAI settings ---
 		if (this.plugin.settings.backend === "openai") {
-			const privacyNote = containerEl.createEl("p", {
-				cls: "setting-item-description",
-			});
-			privacyNote.style.padding = "8px 12px";
-			privacyNote.style.borderLeft = "3px solid var(--text-warning)";
-			privacyNote.style.marginBottom = "12px";
-			privacyNote.textContent =
-				"Privacy: OpenAI retains API data for 30 days for abuse monitoring, then deletes it. Your data is not used for model training.";
+			this.renderPrivacyNote(
+				containerEl,
+				"Privacy: OpenAI retains API data for 30 days for abuse monitoring, then deletes it. Your data is not used for model training.",
+			);
 
 			new Setting(containerEl)
 				.setName("OpenAI API key")
@@ -291,83 +209,40 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						this.plugin.stopPlaybackPublic();
 						this.plugin.settings.openaiModel = v;
 						await this.plugin.saveSettings();
+						this.display();
 					});
 				});
 
-			new Setting(containerEl)
-				.setName("Voice")
-				.setDesc("OpenAI voice. All voices support multilingual output.")
-				.addDropdown((d) => {
-					for (const v of OPENAI_VOICES) {
-						d.addOption(v.id, v.name);
-					}
-					d.setValue(this.plugin.settings.openaiVoice);
-					d.onChange(async (v) => {
-						this.plugin.stopPlaybackPublic();
-						this.plugin.settings.openaiVoice = v;
-						await this.plugin.saveSettings();
-					});
-				});
+			const modelId = this.plugin.settings.openaiModel;
+			const modelDef = OPENAI_MODELS.find((m) => m.id === modelId);
+			const maxChars = modelDef?.maxChars ?? OPENAI_MAX_CHARS;
 
-			this.addReset(
-				new Setting(containerEl)
-					.setName("Chunk size")
-					.setDesc(
-						`Characters per TTS request. Larger = better prosody, fewer API calls. Max: ${OPENAI_MAX_CHARS}. ` +
-						"Note: gpt-4o-mini-tts is capped at 1800 regardless of this setting.",
-					)
-					.addSlider((s) =>
-						s
-							.setLimits(200, OPENAI_MAX_CHARS, 100)
-							.setValue(this.plugin.settings.chunkSizeOpenai)
-							.setDynamicTooltip()
-							.onChange(async (v) => {
-								this.plugin.settings.chunkSizeOpenai = v;
-								await this.plugin.saveSettings();
-							}),
-					),
-				"chunkSizeOpenai",
-			);
+			// Voice
+			this.renderModelVoiceDropdownFromList(containerEl, modelId, OPENAI_VOICES, "OpenAI voice. All voices support multilingual output.");
 
-			this.addReset(
-				new Setting(containerEl)
-					.setName("Buffer ahead")
-					.setDesc(
-						"Chunks to pre-fetch. With large chunks, 2\u20134 is usually enough.",
-					)
-					.addSlider((s) =>
-						s
-							.setLimits(0, 10, 1)
-							.setValue(this.plugin.settings.bufferAheadOpenai)
-							.setDynamicTooltip()
-							.onChange(async (v) => {
-								this.plugin.settings.bufferAheadOpenai = v;
-								await this.plugin.saveSettings();
-							}),
-					),
-				"bufferAheadOpenai",
-			);
+			// Chunk size
+			this.renderModelSlider(containerEl, modelId, "chunkSize",
+				"Chunk size",
+				`Characters per TTS request. Larger = better prosody but slower loading. Max: ${maxChars}.`,
+				100, maxChars, 50);
 
-			this.addResetAll(containerEl, [
-				"openaiModel",
-				"openaiVoice",
-				"chunkSizeOpenai",
-				"bufferAheadOpenai",
-			]);
+			// Buffer ahead
+			this.renderModelSlider(containerEl, modelId, "bufferAhead",
+				"Buffer ahead",
+				"Chunks to pre-fetch while the current one plays.",
+				0, 10, 1);
+
+			this.renderResetAll(containerEl, modelId);
 		}
 
 		// --- Gemini settings ---
 		if (this.plugin.settings.backend === "gemini") {
-			const privacyNote = containerEl.createEl("p", {
-				cls: "setting-item-description",
-			});
-			privacyNote.style.padding = "8px 12px";
-			privacyNote.style.borderLeft = "3px solid var(--text-warning)";
-			privacyNote.style.marginBottom = "12px";
-			privacyNote.textContent =
+			this.renderPrivacyNote(
+				containerEl,
 				"Privacy: Google may use free-tier API data to improve their models. " +
 				"Paid-tier data has better protections but is still subject to Google's terms. " +
-				"Get an API key from Google AI Studio (aistudio.google.com).";
+				"Get an API key from Google AI Studio (aistudio.google.com).",
+			);
 
 			new Setting(containerEl)
 				.setName("Gemini API key")
@@ -384,65 +259,24 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						}),
 				);
 
-			new Setting(containerEl)
-				.setName("Voice")
-				.setDesc("Gemini voice. All voices support 50+ languages including Lithuanian, Chinese, Japanese, and more.")
-				.addDropdown((d) => {
-					for (const v of GEMINI_VOICES) {
-						d.addOption(v.id, v.name);
-					}
-					d.setValue(this.plugin.settings.geminiVoice);
-					d.onChange(async (v) => {
-						this.plugin.stopPlaybackPublic();
-						this.plugin.settings.geminiVoice = v;
-						await this.plugin.saveSettings();
-					});
-				});
+			const modelId = "gemini-2.5-flash-preview-tts";
 
-			this.addReset(
-				new Setting(containerEl)
-					.setName("Chunk size")
-					.setDesc(
-						`Characters per TTS request. Larger = better prosody, fewer API calls. Max: ${GEMINI_MAX_CHARS}. ` +
-						"Audio cuts off at ~5 min per chunk, so very large values may truncate.",
-					)
-					.addSlider((s) =>
-						s
-							.setLimits(200, GEMINI_MAX_CHARS, 100)
-							.setValue(this.plugin.settings.chunkSizeGemini)
-							.setDynamicTooltip()
-							.onChange(async (v) => {
-								this.plugin.settings.chunkSizeGemini = v;
-								await this.plugin.saveSettings();
-							}),
-					),
-				"chunkSizeGemini",
-			);
+			// Voice
+			this.renderModelVoiceDropdownFromList(containerEl, modelId, GEMINI_VOICES, "Gemini voice. All voices support 50+ languages including Lithuanian, Chinese, Japanese, and more.");
 
-			this.addReset(
-				new Setting(containerEl)
-					.setName("Buffer ahead")
-					.setDesc(
-						"Chunks to pre-fetch. Gemini is slower per request, but with large chunks 2\u20134 is usually enough.",
-					)
-					.addSlider((s) =>
-						s
-							.setLimits(0, 10, 1)
-							.setValue(this.plugin.settings.bufferAheadGemini)
-							.setDynamicTooltip()
-							.onChange(async (v) => {
-								this.plugin.settings.bufferAheadGemini = v;
-								await this.plugin.saveSettings();
-							}),
-					),
-				"bufferAheadGemini",
-			);
+			// Chunk size
+			this.renderModelSlider(containerEl, modelId, "chunkSize",
+				"Chunk size",
+				`Characters per TTS request. Larger = better prosody but slower loading. Max: ${GEMINI_MAX_CHARS}.`,
+				100, GEMINI_MAX_CHARS, 50);
 
-			this.addResetAll(containerEl, [
-				"geminiVoice",
-				"chunkSizeGemini",
-				"bufferAheadGemini",
-			]);
+			// Buffer ahead
+			this.renderModelSlider(containerEl, modelId, "bufferAhead",
+				"Buffer ahead",
+				"Chunks to pre-fetch. Gemini is slower per request so buffering helps avoid gaps.",
+				0, 10, 1);
+
+			this.renderResetAll(containerEl, modelId);
 		}
 
 		// --- Text extraction ---
@@ -477,9 +311,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Auto-scroll")
-			.setDesc(
-				"Automatically scroll the document to keep the current sentence visible.",
-			)
+			.setDesc("Automatically scroll the document to keep the current sentence visible.")
 			.addToggle((t) =>
 				t
 					.setValue(this.plugin.settings.autoScroll)
@@ -491,9 +323,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Editor line indicator")
-			.setDesc(
-				"Show a left-border marker on the line being read in editing mode.",
-			)
+			.setDesc("Show a left-border marker on the line being read in editing mode.")
 			.addToggle((t) =>
 				t
 					.setValue(this.plugin.settings.editorLineIndicator)
@@ -505,9 +335,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Toolbar bottom padding")
-			.setDesc(
-				"Extra space below the toolbar (pixels). Increase on mobile if Obsidian's navigation bar covers the controls. Default: 0 on desktop, 80 on mobile.",
-			)
+			.setDesc("Extra space below the toolbar (pixels). Increase on mobile if Obsidian's navigation bar covers the controls.")
 			.addSlider((s) =>
 				s
 					.setLimits(0, 200, 10)
@@ -524,9 +352,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Debug mode")
-			.setDesc(
-				"Show detailed diagnostic notices for troubleshooting TTS issues.",
-			)
+			.setDesc("Show detailed diagnostic notices for troubleshooting TTS issues.")
 			.addToggle((t) =>
 				t
 					.setValue(this.plugin.settings.debug)
@@ -537,60 +363,196 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 			);
 	}
 
-	/**
-	 * Add a reset-to-default button on a Setting, but only if the current
-	 * value differs from the default.
-	 */
-	private addReset<K extends keyof TTSReaderSettings>(
-		setting: Setting,
-		key: K,
-	): Setting {
-		if (this.plugin.settings[key] === DEFAULT_SETTINGS[key]) {
-			return setting;
+	// -----------------------------------------------------------------------
+	// Per-model setting renderers
+	// -----------------------------------------------------------------------
+
+	private renderPrivacyNote(containerEl: HTMLElement, text: string): void {
+		const el = containerEl.createEl("p", { cls: "setting-item-description" });
+		el.style.padding = "8px 12px";
+		el.style.borderLeft = "3px solid var(--text-warning)";
+		el.style.marginBottom = "12px";
+		el.textContent = text;
+	}
+
+	/** Render a voice dropdown from a DeepInfra model definition (supports freeTextVoice). */
+	private renderModelVoiceDropdown(
+		containerEl: HTMLElement,
+		modelId: string,
+		modelDef: { freeTextVoice?: boolean; voices: { id: string; name: string }[]; name: string },
+	): void {
+		const currentVoice = getModelSetting(this.plugin.settings, modelId, "voice");
+		const isVoiceDesign = modelDef.freeTextVoice === true;
+
+		const setting = new Setting(containerEl)
+			.setName("Voice")
+			.setDesc(isVoiceDesign
+				? "Describe the voice you want in natural language."
+				: `Voice for ${modelDef.name.split(" \u2014")[0]}.`);
+
+		if (isVoiceDesign) {
+			setting.addText((t) =>
+				t
+					.setPlaceholder("A calm, clear adult voice...")
+					.setValue(currentVoice)
+					.onChange(async (v) => {
+						this.plugin.stopPlaybackPublic();
+						setModelSetting(this.plugin.settings, modelId, "voice", v);
+						await this.plugin.saveSettings();
+					}),
+			);
+		} else {
+			setting.addDropdown((d) => {
+				for (const v of modelDef.voices) {
+					d.addOption(v.id, v.name);
+				}
+				const validVoice = modelDef.voices.some((v) => v.id === currentVoice)
+					? currentVoice
+					: modelDef.voices[0].id;
+				if (validVoice !== currentVoice) {
+					setModelSetting(this.plugin.settings, modelId, "voice", validVoice);
+					this.plugin.saveSettings();
+				}
+				d.setValue(validVoice);
+				d.onChange(async (v) => {
+					this.plugin.stopPlaybackPublic();
+					setModelSetting(this.plugin.settings, modelId, "voice", v);
+					await this.plugin.saveSettings();
+				});
+			});
 		}
-		return setting.addExtraButton((btn) =>
+
+		this.addModelReset(setting, modelId, "voice");
+	}
+
+	/** Render a voice dropdown from a flat voice list (OpenAI, Gemini). */
+	private renderModelVoiceDropdownFromList(
+		containerEl: HTMLElement,
+		modelId: string,
+		voices: { id: string; name: string }[],
+		desc: string,
+	): void {
+		const currentVoice = getModelSetting(this.plugin.settings, modelId, "voice");
+		const setting = new Setting(containerEl)
+			.setName("Voice")
+			.setDesc(desc)
+			.addDropdown((d) => {
+				for (const v of voices) {
+					d.addOption(v.id, v.name);
+				}
+				const validVoice = voices.some((v) => v.id === currentVoice)
+					? currentVoice
+					: voices[0].id;
+				d.setValue(validVoice);
+				d.onChange(async (v) => {
+					this.plugin.stopPlaybackPublic();
+					setModelSetting(this.plugin.settings, modelId, "voice", v);
+					await this.plugin.saveSettings();
+				});
+			});
+
+		this.addModelReset(setting, modelId, "voice");
+	}
+
+	/** Render a free-text voice field for custom DeepInfra models. */
+	private renderModelVoiceText(containerEl: HTMLElement, modelId: string, desc: string): void {
+		const currentVoice = getModelSetting(this.plugin.settings, modelId, "voice");
+		const setting = new Setting(containerEl)
+			.setName("Voice")
+			.setDesc(desc)
+			.addText((t) =>
+				t
+					.setPlaceholder("voice name")
+					.setValue(currentVoice)
+					.onChange(async (v) => {
+						this.plugin.stopPlaybackPublic();
+						setModelSetting(this.plugin.settings, modelId, "voice", v);
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		this.addModelReset(setting, modelId, "voice");
+	}
+
+	/** Render a numeric slider for a per-model setting. */
+	private renderModelSlider(
+		containerEl: HTMLElement,
+		modelId: string,
+		key: "bufferAhead" | "chunkSize",
+		name: string,
+		desc: string,
+		min: number,
+		max: number,
+		step: number,
+	): void {
+		const value = getModelSetting(this.plugin.settings, modelId, key);
+		const setting = new Setting(containerEl)
+			.setName(name)
+			.setDesc(desc)
+			.addSlider((s) =>
+				s
+					.setLimits(min, max, step)
+					.setValue(Math.min(Math.max(value, min), max))
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						setModelSetting(this.plugin.settings, modelId, key, v);
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		this.addModelReset(setting, modelId, key);
+	}
+
+	/** Add a reset button to a setting, only if the value differs from default. */
+	private addModelReset(
+		setting: Setting,
+		modelId: string,
+		key: keyof ModelSettings,
+	): void {
+		if (!isModelSettingChanged(this.plugin.settings, modelId, key)) return;
+		const defaultVal = getModelDefaults(modelId)[key];
+		setting.addExtraButton((btn) =>
 			btn
 				.setIcon("reset")
-				.setTooltip(`Reset to default (${DEFAULT_SETTINGS[key]})`)
+				.setTooltip(`Reset to default (${defaultVal})`)
 				.onClick(async () => {
 					this.plugin.stopPlaybackPublic();
-					(this.plugin.settings as any)[key] = DEFAULT_SETTINGS[key];
+					resetModelSetting(this.plugin.settings, modelId, key);
 					await this.plugin.saveSettings();
 					this.display();
 				}),
 		);
 	}
 
-	/**
-	 * Add a "Reset all settings for this backend" button.
-	 */
-	private addResetAll(
-		containerEl: HTMLElement,
-		keys: (keyof TTSReaderSettings)[],
-	): void {
-		const anyChanged = keys.some(
-			(k) => this.plugin.settings[k] !== DEFAULT_SETTINGS[k],
-		);
-		if (!anyChanged) return;
+	/** Render a "Reset all to defaults" button for a model. */
+	private renderResetAll(containerEl: HTMLElement, modelId: string): void {
+		if (!hasAnyModelSettingChanged(this.plugin.settings, modelId)) return;
 
+		const defaults = getModelDefaults(modelId);
 		new Setting(containerEl)
 			.setName("Reset all to defaults")
-			.setDesc("Reset all settings for this backend to their defaults.")
+			.setDesc(
+				`Reset all settings for this model to defaults ` +
+				`(voice: ${defaults.voice}, buffer: ${defaults.bufferAhead}` +
+				(defaults.chunkSize > 0 ? `, chunk: ${defaults.chunkSize}` : "") +
+				`)`,
+			)
 			.addButton((btn) =>
 				btn
 					.setButtonText("Reset all")
 					.setWarning()
 					.onClick(async () => {
 						this.plugin.stopPlaybackPublic();
-						for (const k of keys) {
-							(this.plugin.settings as any)[k] =
-								DEFAULT_SETTINGS[k];
-						}
+						resetAllModelSettings(this.plugin.settings, modelId);
 						await this.plugin.saveSettings();
 						this.display();
 					}),
 			);
 	}
+
+	// -----------------------------------------------------------------------
+	// Web Speech voices
+	// -----------------------------------------------------------------------
 
 	private async getWebSpeechVoices(): Promise<VoiceOption[]> {
 		if (typeof speechSynthesis === "undefined") return [];
