@@ -10,7 +10,7 @@ import {
 	type TTSEngine,
 } from "./types";
 import { TTSReaderSettingTab } from "./settings";
-import { extractSentences, mergeShortSentences } from "./text-extractor";
+import { extractChunks, extractSentences } from "./text-extractor";
 import { buildSentenceOffsets, findSentenceAtOffset } from "./position-map";
 import { ttsLineField, updateTTSLineIndicator } from "./editor-line-indicator";
 import { WebSpeechEngine } from "./web-speech";
@@ -244,18 +244,13 @@ export default class TTSReaderPlugin extends Plugin {
 		const isEditorMode = mode !== "preview";
 
 		const markdown = view.getViewData();
-		let sentences = extractSentences(
+		const maxChunkChars = this.getMaxChunkChars();
+		const sentences = extractChunks(
 			markdown,
 			this.settings.skipCodeBlocks,
 			this.settings.skipFrontmatter,
+			maxChunkChars,
 		);
-
-		// Merge short sentences for cloud backends to avoid distortion
-		// on tiny inputs and maintain consistent tone across chunks
-		const minChars = this.getMinChunkChars();
-		if (minChars > 0) {
-			sentences = mergeShortSentences(sentences, minChars);
-		}
 
 		if (sentences.length === 0) {
 			new Notice("TTS Reader: No readable text found in this document.");
@@ -816,14 +811,19 @@ export default class TTSReaderPlugin extends Plugin {
 		this.editorClickTarget = null;
 	}
 
-	private getMinChunkChars(): number {
+	/** Max chars per TTS chunk. 0 = one sentence per chunk (legacy). */
+	private getMaxChunkChars(): number {
 		switch (this.settings.backend) {
 			case "openai":
-				return this.settings.minChunkCharsOpenai;
+				// tts-1/tts-1-hd: 4096 hard limit; gpt-4o-mini-tts: ~2000
+				return this.settings.openaiModel === "gpt-4o-mini-tts"
+					? 1800
+					: 3500;
 			case "gemini":
-				return this.settings.minChunkCharsGemini;
+				// 8192 token input limit, ~5:27 audio wall ≈ 800 words ≈ 4500 chars
+				return 4000;
 			default:
-				return 0; // webspeech and deepinfra handle short text fine
+				return 0; // webspeech and deepinfra: sentence-level is fine
 		}
 	}
 

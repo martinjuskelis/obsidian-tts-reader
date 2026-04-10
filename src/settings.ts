@@ -320,24 +320,6 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 				"bufferAheadOpenai",
 			);
 
-			this.addReset(
-				new Setting(containerEl)
-					.setName("Min chunk size")
-					.setDesc(
-						"Minimum characters per TTS request. Short text (headers, single words) is merged with the next sentence to avoid distortion. 0 = no merging.",
-					)
-					.addSlider((s) =>
-						s
-							.setLimits(0, 500, 25)
-							.setValue(this.plugin.settings.minChunkCharsOpenai)
-							.setDynamicTooltip()
-							.onChange(async (v) => {
-								this.plugin.settings.minChunkCharsOpenai = v;
-								await this.plugin.saveSettings();
-							}),
-					),
-				"minChunkCharsOpenai",
-			);
 		}
 
 		// --- Gemini settings ---
@@ -402,24 +384,6 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 				"bufferAheadGemini",
 			);
 
-			this.addReset(
-				new Setting(containerEl)
-					.setName("Min chunk size")
-					.setDesc(
-						"Minimum characters per TTS request. Short text (headers, single words) is merged with the next sentence to avoid distortion and tone shifts. 0 = no merging.",
-					)
-					.addSlider((s) =>
-						s
-							.setLimits(0, 500, 25)
-							.setValue(this.plugin.settings.minChunkCharsGemini)
-							.setDynamicTooltip()
-							.onChange(async (v) => {
-								this.plugin.settings.minChunkCharsGemini = v;
-								await this.plugin.saveSettings();
-							}),
-					),
-				"minChunkCharsGemini",
-			);
 		}
 
 		// --- Text extraction ---

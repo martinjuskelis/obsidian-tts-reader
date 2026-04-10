@@ -1,7 +1,7 @@
 {
   "id": "tts-reader",
   "name": "TTS Reader",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "minAppVersion": "1.0.0",
   "description": "Read documents aloud with sentence-level highlighting, auto-scrolling, and playback controls.",
   "author": "obsidian-tts-reader",
