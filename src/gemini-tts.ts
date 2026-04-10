@@ -137,18 +137,37 @@ export class GeminiTTSEngine implements TTSEngine {
 			});
 
 			const data = response.json;
-			const b64Audio =
-				data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-			if (!b64Audio) {
+			const parts = data?.candidates?.[0]?.content?.parts;
+			if (!parts || parts.length === 0) {
 				const errMsg =
 					data?.error?.message ||
 					"No audio data in response";
 				console.error("Gemini TTS: " + errMsg);
+				if (this.debug) {
+					console.log("Gemini TTS response:", JSON.stringify(data).slice(0, 500));
+				}
 				return null;
 			}
 
-			// Decode base64 PCM and wrap in WAV header
-			const pcm = base64ToArrayBuffer(b64Audio);
+			// Concatenate PCM data from all parts
+			const pcmChunks: ArrayBuffer[] = [];
+			for (const part of parts) {
+				const b64 = part?.inlineData?.data;
+				if (b64) {
+					pcmChunks.push(base64ToArrayBuffer(b64));
+				}
+			}
+
+			if (pcmChunks.length === 0) {
+				console.error("Gemini TTS: No audio data in any response part");
+				return null;
+			}
+
+			if (this.debug) {
+				console.log(`Gemini TTS: ${pcmChunks.length} audio parts, total ${pcmChunks.reduce((s, c) => s + c.byteLength, 0)} bytes PCM`);
+			}
+
+			const pcm = concatArrayBuffers(pcmChunks);
 			const wav = pcmToWav(pcm, 24000, 1, 16);
 			return new Blob([wav], { type: "audio/wav" });
 		} catch (e) {
@@ -213,6 +232,17 @@ export class GeminiTTSEngine implements TTSEngine {
 }
 
 // --- Utilities ---
+
+function concatArrayBuffers(buffers: ArrayBuffer[]): ArrayBuffer {
+	const totalLength = buffers.reduce((sum, b) => sum + b.byteLength, 0);
+	const result = new Uint8Array(totalLength);
+	let offset = 0;
+	for (const buf of buffers) {
+		result.set(new Uint8Array(buf), offset);
+		offset += buf.byteLength;
+	}
+	return result.buffer;
+}
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
 	const raw = atob(base64);
