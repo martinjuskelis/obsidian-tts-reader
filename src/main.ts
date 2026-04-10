@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Platform, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import {
 	DEFAULT_SETTINGS,
@@ -20,6 +20,7 @@ import { WebSpeechEngine } from "./web-speech";
 import { DeepInfraEngine } from "./deepinfra";
 import { OpenAIEngine } from "./openai-tts";
 import { GeminiTTSEngine } from "./gemini-tts";
+import { exportToMp3 } from "./mp3-export";
 import { Highlighter } from "./highlighter";
 import { PlaybackController } from "./playback";
 import { Toolbar } from "./toolbar";
@@ -69,6 +70,24 @@ export default class TTSReaderPlugin extends Plugin {
 				}
 			}
 		});
+
+		// File menu: Export as MP3
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, abstractFile) => {
+				if (abstractFile instanceof TFile && abstractFile.extension === "md") {
+					menu.addItem((item) => {
+						item.setTitle("Export as MP3")
+							.setIcon("download")
+							.onClick(async () => {
+								const leaf = this.app.workspace.getLeaf(false);
+								await leaf.openFile(abstractFile);
+								const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+								if (view) this.runMp3Export(view);
+							});
+					});
+				}
+			})
+		);
 
 		// Only stop playback when the user opens a DIFFERENT FILE in the
 		// original pane. Clicking other panels, sidebars, extensions,
@@ -233,6 +252,39 @@ export default class TTSReaderPlugin extends Plugin {
 				(this.app as any).setting?.openTabById?.(this.manifest.id);
 			},
 		});
+
+		this.addCommand({
+			id: "export-mp3",
+			name: "Export as MP3",
+			checkCallback: (checking) => {
+				const view =
+					this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (!view || !view.file) return false;
+				if (checking) return true;
+				this.runMp3Export(view);
+			},
+		});
+	}
+
+	// --- MP3 Export ---
+
+	private async runMp3Export(view: MarkdownView): Promise<void> {
+		const file = view.file;
+		if (!file) return;
+		try {
+			const markdown = view.getViewData();
+			const msg = await exportToMp3(
+				file,
+				markdown,
+				this.settings,
+				this.app.vault,
+			);
+			new Notice(`TTS Reader: ${msg}`, 10000);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			new Notice(`TTS Reader export failed: ${msg}`, 10000);
+			console.error("TTS Reader: MP3 export error", err);
+		}
 	}
 
 	// --- Playback lifecycle ---
