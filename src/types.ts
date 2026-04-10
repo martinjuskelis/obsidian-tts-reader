@@ -21,6 +21,8 @@ export interface TTSReaderSettings {
 	bufferAheadDeepinfra: number;
 	bufferAheadOpenai: number;
 	bufferAheadGemini: number;
+	chunkSizeOpenai: number;
+	chunkSizeGemini: number;
 	editorLineIndicator: boolean;
 	debug: boolean;
 }
@@ -43,8 +45,10 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	toolbarPadding: 0,
 	bufferAhead: 5,
 	bufferAheadDeepinfra: 5,
-	bufferAheadOpenai: 8,
-	bufferAheadGemini: 15,
+	bufferAheadOpenai: 3,
+	bufferAheadGemini: 3,
+	chunkSizeOpenai: 3500,
+	chunkSizeGemini: 4000,
 	editorLineIndicator: true,
 	debug: false,
 };
@@ -187,6 +191,11 @@ export const GEMINI_VOICES: { id: string; name: string }[] = [
 	{ id: "Puck", name: "Puck (M, lively)" },
 	{ id: "Zephyr", name: "Zephyr (F, breathy)" },
 ];
+
+/** Hard API limits (characters). Used as slider maximums. */
+export const OPENAI_MAX_CHARS = 4096;
+export const OPENAI_MINI_MAX_CHARS = 2000;
+export const GEMINI_MAX_CHARS = 8000; // 8192 tokens ≈ 32K chars, but ~5:27 audio wall limits practical use
 
 export const SPEED_MIN = 0.5;
 export const SPEED_MAX = 10.0;

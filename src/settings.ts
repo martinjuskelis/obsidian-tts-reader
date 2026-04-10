@@ -5,7 +5,9 @@ import {
 	DEEPINFRA_MODELS,
 	OPENAI_MODELS,
 	OPENAI_VOICES,
+	OPENAI_MAX_CHARS,
 	GEMINI_VOICES,
+	GEMINI_MAX_CHARS,
 	SPEED_MIN,
 	SPEED_MAX,
 	SPEED_STEP,
@@ -303,13 +305,33 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 			this.addReset(
 				new Setting(containerEl)
-					.setName("Buffer ahead")
+					.setName("Chunk size")
 					.setDesc(
-						"Sentences to pre-fetch while the current one plays. OpenAI is moderately fast (5\u201310).",
+						`Characters per TTS request. Larger = better prosody, fewer API calls. Max: ${OPENAI_MAX_CHARS}. ` +
+						"Note: gpt-4o-mini-tts is capped at 1800 regardless of this setting.",
 					)
 					.addSlider((s) =>
 						s
-							.setLimits(0, 20, 1)
+							.setLimits(200, OPENAI_MAX_CHARS, 100)
+							.setValue(this.plugin.settings.chunkSizeOpenai)
+							.setDynamicTooltip()
+							.onChange(async (v) => {
+								this.plugin.settings.chunkSizeOpenai = v;
+								await this.plugin.saveSettings();
+							}),
+					),
+				"chunkSizeOpenai",
+			);
+
+			this.addReset(
+				new Setting(containerEl)
+					.setName("Buffer ahead")
+					.setDesc(
+						"Chunks to pre-fetch. With large chunks, 2\u20134 is usually enough.",
+					)
+					.addSlider((s) =>
+						s
+							.setLimits(0, 10, 1)
 							.setValue(this.plugin.settings.bufferAheadOpenai)
 							.setDynamicTooltip()
 							.onChange(async (v) => {
@@ -319,7 +341,6 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					),
 				"bufferAheadOpenai",
 			);
-
 		}
 
 		// --- Gemini settings ---
@@ -367,13 +388,33 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 			this.addReset(
 				new Setting(containerEl)
-					.setName("Buffer ahead")
+					.setName("Chunk size")
 					.setDesc(
-						"Sentences to pre-fetch. Gemini is slower per request so a higher buffer (10\u201320) prevents gaps.",
+						`Characters per TTS request. Larger = better prosody, fewer API calls. Max: ${GEMINI_MAX_CHARS}. ` +
+						"Audio cuts off at ~5 min per chunk, so very large values may truncate.",
 					)
 					.addSlider((s) =>
 						s
-							.setLimits(0, 20, 1)
+							.setLimits(200, GEMINI_MAX_CHARS, 100)
+							.setValue(this.plugin.settings.chunkSizeGemini)
+							.setDynamicTooltip()
+							.onChange(async (v) => {
+								this.plugin.settings.chunkSizeGemini = v;
+								await this.plugin.saveSettings();
+							}),
+					),
+				"chunkSizeGemini",
+			);
+
+			this.addReset(
+				new Setting(containerEl)
+					.setName("Buffer ahead")
+					.setDesc(
+						"Chunks to pre-fetch. Gemini is slower per request, but with large chunks 2\u20134 is usually enough.",
+					)
+					.addSlider((s) =>
+						s
+							.setLimits(0, 10, 1)
 							.setValue(this.plugin.settings.bufferAheadGemini)
 							.setDynamicTooltip()
 							.onChange(async (v) => {
@@ -383,7 +424,6 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					),
 				"bufferAheadGemini",
 			);
-
 		}
 
 		// --- Text extraction ---

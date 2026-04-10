@@ -815,13 +815,13 @@ export default class TTSReaderPlugin extends Plugin {
 	private getMaxChunkChars(): number {
 		switch (this.settings.backend) {
 			case "openai":
-				// tts-1/tts-1-hd: 4096 hard limit; gpt-4o-mini-tts: ~2000
-				return this.settings.openaiModel === "gpt-4o-mini-tts"
-					? 1800
-					: 3500;
+				// gpt-4o-mini-tts has a lower limit (2000 tokens)
+				if (this.settings.openaiModel === "gpt-4o-mini-tts") {
+					return Math.min(this.settings.chunkSizeOpenai, 1800);
+				}
+				return this.settings.chunkSizeOpenai;
 			case "gemini":
-				// 8192 token input limit, ~5:27 audio wall ≈ 800 words ≈ 4500 chars
-				return 4000;
+				return this.settings.chunkSizeGemini;
 			default:
 				return 0; // webspeech and deepinfra: sentence-level is fine
 		}
