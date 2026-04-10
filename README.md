@@ -27,16 +27,41 @@ Uses your browser/OS built-in speech synthesis. No API key needed.
 - **Android**: Google TTS
 - **Linux**: Depends on installed speech engines
 
-### DeepInfra (cloud, optional)
+### OpenAI (cloud)
 
-For higher-quality voices, connect to DeepInfra's hosted TTS models. Requires a [DeepInfra API key](https://deepinfra.com/).
+High-quality voices with good multilingual support. Requires an [OpenAI API key](https://platform.openai.com/api-keys).
 
-Preset models:
-- **Kokoro 82M** — fast and lightweight
-- **Qwen3 TTS** — multilingual
-- **Orpheus 3B** — most expressive
+- **tts-1** — fast, cost-effective ($15/M chars)
+- **tts-1-hd** — higher fidelity ($30/M chars)
+- **gpt-4o-mini-tts** — newest, supports natural-language style instructions
+
+10 voices available (alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer).
+
+### Google Gemini (cloud, best for multilingual)
+
+Uses Gemini 2.5 Flash TTS via a simple API key from [Google AI Studio](https://aistudio.google.com/). No Google Cloud project needed.
+
+- 50+ languages with strong non-English support (Lithuanian, Chinese, Japanese, etc.)
+- 8 voices (Kore, Aoede, Charon, Fenrir, Leda, Orus, Puck, Zephyr)
+- Very affordable (~$0.05 per large document)
+
+### DeepInfra (cloud)
+
+Multiple TTS models via [DeepInfra](https://deepinfra.com/). Preset models:
+
+- **Kokoro 82M** — fast and lightweight (~$0.80/M chars)
+- **Qwen3 TTS** — multilingual (~$20/M chars)
+- **Orpheus 3B** — most expressive (~$1/M chars)
 
 You can also enter any custom model ID from DeepInfra's model catalog.
+
+### Privacy
+
+Each cloud backend shows a privacy notice in settings:
+
+- **DeepInfra**: Does not store or train on your data. May temporarily store for debugging.
+- **OpenAI**: Retains API data for 30 days for abuse monitoring. Not used for model training.
+- **Google Gemini**: May use free-tier API data to improve models. Paid-tier data has better protections.
 
 ## Usage
 
@@ -73,12 +98,17 @@ All commands are available in the command palette and can be bound to hotkeys:
 
 | Setting | Description |
 |---------|-------------|
-| TTS backend | Web Speech API (free) or DeepInfra (cloud) |
+| TTS backend | Web Speech, DeepInfra, OpenAI, or Google Gemini |
 | Default speed | Starting playback speed |
-| Voice | Choose from available system voices |
+| Voice | Choose from available voices (per-backend) |
+| Buffer ahead | Sentences to pre-fetch (per-backend, with tuned defaults) |
+| Min chunk size | Minimum characters per TTS request — merges short text like headers with following content (OpenAI/Gemini only) |
 | Skip code blocks | Don't read code blocks aloud (default: on) |
 | Skip frontmatter | Don't read YAML frontmatter (default: on) |
 | Auto-scroll | Keep the current sentence visible (default: on) |
+| Editor line indicator | Show left-border marker on current line in editing mode |
+
+Each per-backend setting has a reset-to-default button.
 
 ## Installation
 
@@ -104,6 +134,16 @@ npm run build
 ```
 
 The built plugin is `main.js` in the project root. Copy it along with `manifest.json` and `styles.css` to your vault's plugin folder.
+
+## Roadmap
+
+Planned improvements (contributions welcome):
+
+- **Paragraph-based chunking** — Replace sentence-level TTS calls with large paragraph-sized chunks (up to the API limit per request). This gives the model more context for natural prosody, eliminates tone resets between sentences, and dramatically reduces API calls. Uses `Intl.Segmenter` for proper multilingual sentence boundary detection.
+- **Audio caching** — Cache generated audio so navigating back to a section or re-reading a file doesn't re-generate (and re-bill) the same text. Chunks would be keyed by text hash + backend + voice.
+- **Save and resume progress** — Remember the last playback position per file so you can pick up where you left off when returning to a document.
+- **Word-level highlighting** — Show both the current chunk/section and the individual word being spoken (similar to Speechify). Would require word-level timestamp alignment from the TTS response or client-side audio analysis.
+- **MP3 export** — Export the full document as an MP3 file for offline listening. Generate audio for all chunks, concatenate with crossfade, and save to the vault.
 
 ## License
 

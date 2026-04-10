@@ -618,7 +618,9 @@ export default class TTSReaderPlugin extends Plugin {
 				this.controller.jumpTo(idx, this.settings.speed);
 			}
 			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
 				console.error("TTS Reader: click-to-jump error:", err);
+				new Notice(`TTS Reader: click-to-jump failed: ${msg}`, 6000);
 			}
 		};
 
@@ -777,7 +779,9 @@ export default class TTSReaderPlugin extends Plugin {
 				}
 			}
 			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
 				console.error("TTS Reader: editor click-to-jump error:", err);
+				new Notice(`TTS Reader: click-to-jump failed: ${msg}`, 6000);
 			}
 		};
 
