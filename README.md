@@ -139,7 +139,8 @@ The built plugin is `main.js` in the project root. Copy it along with `manifest.
 
 Planned improvements (contributions welcome):
 
-- **Paragraph-based chunking** — Replace sentence-level TTS calls with large paragraph-sized chunks (up to the API limit per request). This gives the model more context for natural prosody, eliminates tone resets between sentences, and dramatically reduces API calls. Uses `Intl.Segmenter` for proper multilingual sentence boundary detection.
+- ~~**Paragraph-based chunking**~~ — Done in v3.1.0.
+- **Dynamic model/voice/limits discovery** — Currently, model lists, voice options, and API limits (max chars per request) are hardcoded. These go stale every few months as providers add new models, voices, and change limits. The plugin should dynamically fetch this information from each provider's API when the user enters their API key, then cache it locally. Hardcoded values would remain as a fallback baseline, but the live data would take precedence. This covers: available models, available voices per model, max input characters/tokens per model, pricing info if available, and any model-specific constraints (e.g. gpt-4o-mini-tts's lower token limit).
 - **Audio caching** — Cache generated audio so navigating back to a section or re-reading a file doesn't re-generate (and re-bill) the same text. Chunks would be keyed by text hash + backend + voice.
 - **Save and resume progress** — Remember the last playback position per file so you can pick up where you left off when returning to a document.
 - **Word-level highlighting** — Show both the current chunk/section and the individual word being spoken (similar to Speechify). Would require word-level timestamp alignment from the TTS response or client-side audio analysis.
