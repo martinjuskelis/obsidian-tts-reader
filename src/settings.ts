@@ -222,6 +222,22 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 							}),
 					);
 			}
+
+			new Setting(containerEl)
+				.setName("Buffer ahead")
+				.setDesc(
+					"Sentences to pre-fetch. Kokoro is fast (2\u20135). Slower models like Orpheus need 5\u201310.",
+				)
+				.addSlider((s) =>
+					s
+						.setLimits(0, 20, 1)
+						.setValue(this.plugin.settings.bufferAheadDeepinfra)
+						.setDynamicTooltip()
+						.onChange(async (v) => {
+							this.plugin.settings.bufferAheadDeepinfra = v;
+							await this.plugin.saveSettings();
+						}),
+				);
 		}
 
 		// --- OpenAI settings ---
@@ -279,6 +295,22 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 				});
+
+			new Setting(containerEl)
+				.setName("Buffer ahead")
+				.setDesc(
+					"Sentences to pre-fetch while the current one plays. OpenAI is moderately fast (5\u201310).",
+				)
+				.addSlider((s) =>
+					s
+						.setLimits(0, 20, 1)
+						.setValue(this.plugin.settings.bufferAheadOpenai)
+						.setDynamicTooltip()
+						.onChange(async (v) => {
+							this.plugin.settings.bufferAheadOpenai = v;
+							await this.plugin.saveSettings();
+						}),
+				);
 		}
 
 		// --- Gemini settings ---
@@ -323,6 +355,22 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 				});
+
+			new Setting(containerEl)
+				.setName("Buffer ahead")
+				.setDesc(
+					"Sentences to pre-fetch. Gemini is slower per request so a higher buffer (10\u201320) prevents gaps.",
+				)
+				.addSlider((s) =>
+					s
+						.setLimits(0, 20, 1)
+						.setValue(this.plugin.settings.bufferAheadGemini)
+						.setDynamicTooltip()
+						.onChange(async (v) => {
+							this.plugin.settings.bufferAheadGemini = v;
+							await this.plugin.saveSettings();
+						}),
+				);
 		}
 
 		// --- Text extraction ---
@@ -379,22 +427,6 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.editorLineIndicator)
 					.onChange(async (v) => {
 						this.plugin.settings.editorLineIndicator = v;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName("Buffer ahead")
-			.setDesc(
-				"How many sentences to pre-fetch while the current one plays. Increase for slow models like Orpheus (5\u201310). Kokoro is fast enough with 2\u20133.",
-			)
-			.addSlider((s) =>
-				s
-					.setLimits(0, 20, 1)
-					.setValue(this.plugin.settings.bufferAhead)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						this.plugin.settings.bufferAhead = v;
 						await this.plugin.saveSettings();
 					}),
 			);

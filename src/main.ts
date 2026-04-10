@@ -288,7 +288,7 @@ export default class TTSReaderPlugin extends Plugin {
 			this.highlighter,
 			this.settings.autoScroll,
 		);
-		this.controller.setBufferAhead(this.settings.bufferAhead);
+		this.controller.setBufferAhead(this.getBufferAhead());
 
 		this.playbackLeaf = view.leaf;
 		this.playbackFilePath = view.file?.path ?? null;
@@ -794,6 +794,19 @@ export default class TTSReaderPlugin extends Plugin {
 		}
 		this.editorClickHandler = null;
 		this.editorClickTarget = null;
+	}
+
+	private getBufferAhead(): number {
+		switch (this.settings.backend) {
+			case "deepinfra":
+				return this.settings.bufferAheadDeepinfra;
+			case "openai":
+				return this.settings.bufferAheadOpenai;
+			case "gemini":
+				return this.settings.bufferAheadGemini;
+			default:
+				return this.settings.bufferAhead;
+		}
 	}
 
 	private changeSpeed(delta: number): void {

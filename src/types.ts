@@ -16,7 +16,11 @@ export interface TTSReaderSettings {
 	skipFrontmatter: boolean;
 	autoScroll: boolean;
 	toolbarPadding: number;
+	/** @deprecated Use per-backend bufferAhead fields instead */
 	bufferAhead: number;
+	bufferAheadDeepinfra: number;
+	bufferAheadOpenai: number;
+	bufferAheadGemini: number;
 	editorLineIndicator: boolean;
 	debug: boolean;
 }
@@ -38,6 +42,9 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	autoScroll: true,
 	toolbarPadding: 0,
 	bufferAhead: 5,
+	bufferAheadDeepinfra: 5,
+	bufferAheadOpenai: 8,
+	bufferAheadGemini: 15,
 	editorLineIndicator: true,
 	debug: false,
 };
