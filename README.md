@@ -144,7 +144,7 @@ Planned improvements (contributions welcome):
 - **Audio caching** — Cache generated audio so navigating back to a section or re-reading a file doesn't re-generate (and re-bill) the same text. Chunks would be keyed by text hash + backend + voice.
 - **Save and resume progress** — Remember the last playback position per file so you can pick up where you left off when returning to a document.
 - **Word-level highlighting** — Show both the current chunk/section and the individual word being spoken (similar to Speechify). Would require word-level timestamp alignment from the TTS response or client-side audio analysis.
-- **MP3 export** — Export the full document as an MP3 file for offline listening. Generate audio for all chunks, concatenate with crossfade, and save to the vault.
+- ~~**MP3 export**~~ — Done in v4.1.0. Command palette or right-click > "Export as MP3".
 - **Offline pregeneration and section-level caching** — A "Download for offline listening" command that pre-generates the entire document's audio using large chunk sizes (max API limit) for the best possible prosody and tonal consistency across sections. The generated audio is cached per-section in the vault (keyed by section text hash + backend + voice), so:
   - Playback uses the pre-generated high-quality audio instead of making live API calls.
   - If a section of the document changes, only that section's audio is re-generated — not the entire file.
