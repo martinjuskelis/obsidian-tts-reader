@@ -65,6 +65,7 @@ export interface TTSReaderSettings {
 	skipFrontmatter: boolean;
 	autoScroll: boolean;
 	toolbarPadding: number;
+	exportConcurrency: number;
 	editorLineIndicator: boolean;
 	debug: boolean;
 }
@@ -83,6 +84,7 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	skipFrontmatter: true,
 	autoScroll: true,
 	toolbarPadding: 0,
+	exportConcurrency: 10,
 	editorLineIndicator: true,
 	debug: false,
 };

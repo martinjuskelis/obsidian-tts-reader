@@ -347,6 +347,23 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					}),
 			);
 
+		// --- Export ---
+		new Setting(containerEl).setName("Export").setHeading();
+
+		new Setting(containerEl)
+			.setName("Export parallel requests")
+			.setDesc("Number of simultaneous API calls when exporting to MP3. Higher = faster export but may hit rate limits.")
+			.addSlider((s) =>
+				s
+					.setLimits(1, 20, 1)
+					.setValue(this.plugin.settings.exportConcurrency)
+					.setDynamicTooltip()
+					.onChange(async (v) => {
+						this.plugin.settings.exportConcurrency = v;
+						await this.plugin.saveSettings();
+					}),
+			);
+
 		// --- Advanced ---
 		new Setting(containerEl).setName("Advanced").setHeading();
 

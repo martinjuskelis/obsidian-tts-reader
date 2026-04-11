@@ -154,28 +154,75 @@ async function generateDeepInfra(
 }
 
 // ---------------------------------------------------------------------------
-// Parallel chunk generation with concurrency limit
+// Parallel chunk generation with concurrency limit and robust retry
 // ---------------------------------------------------------------------------
+
+const MAX_RETRIES = 5;
+const CONCURRENCY = 10;
+
+/** Classify errors to determine retry strategy. */
+function isRateLimitError(err: string): boolean {
+	return err.includes("429") || err.includes("rate") || err.includes("quota");
+}
+
+function isTransientError(err: string): boolean {
+	return (
+		isRateLimitError(err) ||
+		err.includes("500") ||
+		err.includes("502") ||
+		err.includes("503") ||
+		err.includes("504") ||
+		err.includes("timeout") ||
+		err.includes("ETIMEDOUT") ||
+		err.includes("ECONNRESET") ||
+		err.includes("network") ||
+		err.includes("fetch")
+	);
+}
+
+function getRetryDelay(attempt: number, errMsg: string): number {
+	if (isRateLimitError(errMsg)) {
+		// Rate limited: longer exponential backoff (5s, 15s, 45s, ...)
+		return Math.min(5000 * Math.pow(3, attempt - 1), 60000);
+	}
+	// Transient error: standard backoff (2s, 4s, 8s, ...)
+	return Math.min(2000 * Math.pow(2, attempt - 1), 30000);
+}
 
 async function generateOneChunkWithRetry(
 	text: string,
 	index: number,
 	total: number,
 	settings: TTSReaderSettings,
+	onRetry: (retrying: boolean) => void,
 ): Promise<Blob> {
 	let lastError = "";
-	for (let attempt = 1; attempt <= 3; attempt++) {
+	for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 		try {
-			return await generateChunkAudio(text, settings);
+			const blob = await generateChunkAudio(text, settings);
+			if (attempt > 1) onRetry(false); // was retrying, now succeeded
+			return blob;
 		} catch (err) {
 			lastError = err instanceof Error ? err.message : String(err);
-			if (attempt < 3) {
-				await sleep(attempt * 3000);
+			const transient = isTransientError(lastError);
+
+			if (attempt < MAX_RETRIES && transient) {
+				onRetry(true);
+				const delay = getRetryDelay(attempt, lastError);
+				console.warn(
+					`MP3 Export: Chunk ${index + 1}/${total} attempt ${attempt}/${MAX_RETRIES} failed (${lastError}), retrying in ${delay / 1000}s`,
+				);
+				await sleep(delay);
+				continue;
 			}
+
+			// Non-transient error or max retries exhausted
+			onRetry(false);
+			break;
 		}
 	}
 	throw new Error(
-		`Chunk ${index + 1}/${total} failed after 3 attempts: ${lastError}`,
+		`Chunk ${index + 1}/${total} failed after ${MAX_RETRIES} attempts: ${lastError}`,
 	);
 }
 
@@ -204,7 +251,17 @@ async function generateAllChunks(
 			}
 
 			const i = nextIndex++;
-			generateOneChunkWithRetry(chunks[i].text, i, total, settings)
+			generateOneChunkWithRetry(
+				chunks[i].text,
+				i,
+				total,
+				settings,
+				(isRetrying) => {
+					retryingCount += isRetrying ? 1 : -1;
+					retryingCount = Math.max(0, retryingCount);
+					onProgress(doneCount, total, retryingCount);
+				},
+			)
 				.then((blob) => {
 					results[i] = blob;
 					doneCount++;
@@ -272,14 +329,14 @@ export async function exportToMp3(
 	const notice = new Notice("", 0);
 
 	// Generate audio for all chunks in parallel (with concurrency limit)
-	const CONCURRENCY = 5;
+	const concurrency = settings.exportConcurrency;
 	notice.setMessage(
-		`MP3 Export: Generating audio for ${chunks.length} chunks (${CONCURRENCY} parallel)...`,
+		`MP3 Export: Generating audio for ${chunks.length} chunks (${concurrency} parallel)...`,
 	);
 	const audioBlobs = await generateAllChunks(
 		chunks,
 		settings,
-		CONCURRENCY,
+		concurrency,
 		(done, total, retrying) => {
 			const msg = `MP3 Export: ${done}/${total} chunks done` +
 				(retrying > 0 ? ` (${retrying} retrying)` : "");
