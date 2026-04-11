@@ -154,6 +154,80 @@ async function generateDeepInfra(
 }
 
 // ---------------------------------------------------------------------------
+// Parallel chunk generation with concurrency limit
+// ---------------------------------------------------------------------------
+
+async function generateOneChunkWithRetry(
+	text: string,
+	index: number,
+	total: number,
+	settings: TTSReaderSettings,
+): Promise<Blob> {
+	let lastError = "";
+	for (let attempt = 1; attempt <= 3; attempt++) {
+		try {
+			return await generateChunkAudio(text, settings);
+		} catch (err) {
+			lastError = err instanceof Error ? err.message : String(err);
+			if (attempt < 3) {
+				await sleep(attempt * 3000);
+			}
+		}
+	}
+	throw new Error(
+		`Chunk ${index + 1}/${total} failed after 3 attempts: ${lastError}`,
+	);
+}
+
+async function generateAllChunks(
+	chunks: SentenceInfo[],
+	settings: TTSReaderSettings,
+	concurrency: number,
+	onProgress: (done: number, total: number, retrying: number) => void,
+): Promise<Blob[]> {
+	const total = chunks.length;
+	const results: (Blob | null)[] = new Array(total).fill(null);
+	let nextIndex = 0;
+	let doneCount = 0;
+	let retryingCount = 0;
+
+	return new Promise<Blob[]>((resolve, reject) => {
+		let rejected = false;
+
+		function startNext() {
+			if (rejected) return;
+			if (nextIndex >= total) {
+				if (doneCount === total) {
+					resolve(results as Blob[]);
+				}
+				return;
+			}
+
+			const i = nextIndex++;
+			generateOneChunkWithRetry(chunks[i].text, i, total, settings)
+				.then((blob) => {
+					results[i] = blob;
+					doneCount++;
+					onProgress(doneCount, total, retryingCount);
+					startNext();
+				})
+				.catch((err) => {
+					if (!rejected) {
+						rejected = true;
+						reject(err);
+					}
+				});
+		}
+
+		// Launch initial batch
+		const initialBatch = Math.min(concurrency, total);
+		for (let i = 0; i < initialBatch; i++) {
+			startNext();
+		}
+	});
+}
+
+// ---------------------------------------------------------------------------
 // Main export function
 // ---------------------------------------------------------------------------
 
@@ -196,41 +270,22 @@ export async function exportToMp3(
 	}
 
 	const notice = new Notice("", 0);
-	const audioBlobs: Blob[] = [];
 
-	// Generate audio for each chunk with retry
-	for (let i = 0; i < chunks.length; i++) {
-		notice.setMessage(
-			`MP3 Export: Generating audio ${i + 1}/${chunks.length}...`,
-		);
-
-		let blob: Blob | null = null;
-		let lastError = "";
-		for (let attempt = 1; attempt <= 3; attempt++) {
-			try {
-				blob = await generateChunkAudio(chunks[i].text, settings);
-				break;
-			} catch (err) {
-				lastError = err instanceof Error ? err.message : String(err);
-				if (attempt < 3) {
-					const delay = attempt * 3000;
-					notice.setMessage(
-						`MP3 Export: Chunk ${i + 1} failed (attempt ${attempt}/3), retrying in ${delay / 1000}s...`,
-					);
-					await sleep(delay);
-				}
-			}
-		}
-
-		if (!blob) {
-			notice.hide();
-			throw new Error(
-				`Failed to generate audio for chunk ${i + 1}/${chunks.length} after 3 attempts: ${lastError}`,
-			);
-		}
-
-		audioBlobs.push(blob);
-	}
+	// Generate audio for all chunks in parallel (with concurrency limit)
+	const CONCURRENCY = 5;
+	notice.setMessage(
+		`MP3 Export: Generating audio for ${chunks.length} chunks (${CONCURRENCY} parallel)...`,
+	);
+	const audioBlobs = await generateAllChunks(
+		chunks,
+		settings,
+		CONCURRENCY,
+		(done, total, retrying) => {
+			const msg = `MP3 Export: ${done}/${total} chunks done` +
+				(retrying > 0 ? ` (${retrying} retrying)` : "");
+			notice.setMessage(msg);
+		},
+	);
 
 	// Decode all audio to PCM using AudioContext
 	notice.setMessage("MP3 Export: Decoding audio...");
