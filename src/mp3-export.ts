@@ -172,7 +172,7 @@ async function generateDeepInfra(
 // Parallel chunk generation with concurrency limit and robust retry
 // ---------------------------------------------------------------------------
 
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 50;
 const CONCURRENCY = 10;
 
 /** Classify errors to determine retry strategy. */
