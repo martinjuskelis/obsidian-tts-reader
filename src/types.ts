@@ -31,7 +31,7 @@ export const MODEL_DEFAULTS: Record<string, ModelSettings> = {
 	"tts-1-hd": { voice: "nova", bufferAhead: 4, chunkSize: 400, exportChunkSize: 3500 },
 	"gpt-4o-mini-tts": { voice: "nova", bufferAhead: 3, chunkSize: 200, exportChunkSize: 1700 },
 	// --- Gemini (quality degrades past ~2000 chars) ---
-	"gemini-2.5-flash-preview-tts": { voice: "Zephyr", bufferAhead: 3, chunkSize: 200, exportChunkSize: 1500 },
+	"gemini-2.5-flash-preview-tts": { voice: "Zephyr", bufferAhead: 3, chunkSize: 200, exportChunkSize: 800 },
 };
 
 /** Fallback for unknown models. */
