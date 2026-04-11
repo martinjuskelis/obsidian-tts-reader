@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Platform, PluginSettingTab, Setting } from "obsidian";
 import type TTSReaderPlugin from "./main";
 import {
 	DEFAULT_SETTINGS,
@@ -567,13 +567,21 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 		}
 	}
 
+	/** Get the effective default for a global setting (platform-aware). */
+	private getEffectiveDefault<K extends keyof typeof DEFAULT_SETTINGS>(key: K): (typeof DEFAULT_SETTINGS)[K] {
+		if (key === "toolbarPadding" && Platform.isMobile) {
+			return 80 as (typeof DEFAULT_SETTINGS)[K];
+		}
+		return DEFAULT_SETTINGS[key];
+	}
+
 	/** Add a reset button to a global setting. Dimmed when tracking default. */
 	private addGlobalReset<K extends keyof typeof DEFAULT_SETTINGS>(
 		setting: Setting,
 		key: K,
 	): void {
 		const changed = this.plugin.settings.globalOverrides.includes(key as string);
-		const defaultVal = DEFAULT_SETTINGS[key];
+		const defaultVal = this.getEffectiveDefault(key);
 		setting.addExtraButton((btn) => {
 			btn
 				.setIcon("reset")
