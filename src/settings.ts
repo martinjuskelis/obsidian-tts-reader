@@ -67,6 +67,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						.setDynamicTooltip()
 						.onChange(async (v) => {
 							this.plugin.settings.speed = v;
+							this.markGlobalOverride("speed");
 							await this.plugin.saveSettings();
 						}),
 				),
@@ -347,6 +348,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						.setDynamicTooltip()
 						.onChange(async (v) => {
 							this.plugin.settings.toolbarPadding = v;
+							this.markGlobalOverride("toolbarPadding");
 							await this.plugin.saveSettings();
 						}),
 				),
@@ -367,6 +369,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 						.setDynamicTooltip()
 						.onChange(async (v) => {
 							this.plugin.settings.exportConcurrency = v;
+							this.markGlobalOverride("exportConcurrency");
 							await this.plugin.saveSettings();
 						}),
 				),
@@ -557,21 +560,29 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 		});
 	}
 
-	/** Add a reset button to a global setting. Dimmed when already at default. */
+	/** Mark a global setting as explicitly modified by the user. */
+	private markGlobalOverride(key: string): void {
+		if (!this.plugin.settings.globalOverrides.includes(key)) {
+			this.plugin.settings.globalOverrides.push(key);
+		}
+	}
+
+	/** Add a reset button to a global setting. Dimmed when tracking default. */
 	private addGlobalReset<K extends keyof typeof DEFAULT_SETTINGS>(
 		setting: Setting,
 		key: K,
 	): void {
-		const current = this.plugin.settings[key];
+		const changed = this.plugin.settings.globalOverrides.includes(key as string);
 		const defaultVal = DEFAULT_SETTINGS[key];
-		const changed = current !== defaultVal;
 		setting.addExtraButton((btn) => {
 			btn
 				.setIcon("reset")
-				.setTooltip(changed ? `Reset to default (${defaultVal})` : `At default (${defaultVal})`)
+				.setTooltip(changed ? `Reset to default (${defaultVal})` : `Tracking default (${defaultVal})`)
 				.onClick(async () => {
 					if (!changed) return;
 					(this.plugin.settings as any)[key] = defaultVal;
+					this.plugin.settings.globalOverrides =
+						this.plugin.settings.globalOverrides.filter((k) => k !== key);
 					await this.plugin.saveSettings();
 					this.display();
 				});

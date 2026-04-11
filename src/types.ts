@@ -66,6 +66,8 @@ export interface TTSReaderSettings {
 	autoScroll: boolean;
 	toolbarPadding: number;
 	exportConcurrency: number;
+	/** Tracks which global settings the user has explicitly modified. */
+	globalOverrides: string[];
 	editorLineIndicator: boolean;
 	debug: boolean;
 }
@@ -85,6 +87,7 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	autoScroll: true,
 	toolbarPadding: 0,
 	exportConcurrency: 10,
+	globalOverrides: [],
 	editorLineIndicator: true,
 	debug: false,
 };
