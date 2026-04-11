@@ -88,7 +88,16 @@ async function generateGemini(
 				},
 			},
 		}),
+		throw: false,
 	});
+
+	if (response.status !== 200) {
+		const detail =
+			response.json?.error?.message ||
+			response.text?.slice(0, 200) ||
+			`HTTP ${response.status}`;
+		throw new Error(`Gemini ${response.status}: ${detail}`);
+	}
 
 	const data = response.json;
 	const parts = data?.candidates?.[0]?.content?.parts;
@@ -98,7 +107,6 @@ async function generateGemini(
 		);
 	}
 
-	// Concatenate all PCM parts and wrap in WAV
 	const pcmChunks: ArrayBuffer[] = [];
 	for (const part of parts) {
 		const b64 = part?.inlineData?.data;
@@ -130,7 +138,17 @@ async function generateOpenAI(
 			voice,
 			response_format: "mp3",
 		}),
+		throw: false,
 	});
+
+	if (response.status !== 200) {
+		const detail =
+			response.json?.error?.message ||
+			response.text?.slice(0, 200) ||
+			`HTTP ${response.status}`;
+		throw new Error(`OpenAI ${response.status}: ${detail}`);
+	}
+
 	return new Blob([response.arrayBuffer], { type: "audio/mpeg" });
 }
 
@@ -148,7 +166,17 @@ async function generateDeepInfra(
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({ model, input: text, voice }),
+		throw: false,
 	});
+
+	if (response.status !== 200) {
+		const detail =
+			response.json?.error?.message ||
+			response.text?.slice(0, 200) ||
+			`HTTP ${response.status}`;
+		throw new Error(`DeepInfra ${response.status}: ${detail}`);
+	}
+
 	const contentType = response.headers["content-type"] || "audio/wav";
 	return new Blob([response.arrayBuffer], { type: contentType });
 }
@@ -194,20 +222,25 @@ async function generateOneChunkWithRetry(
 	index: number,
 	total: number,
 	settings: TTSReaderSettings,
-	onRetry: (retrying: boolean) => void,
+	onRetryStart: () => void,
+	onRetryEnd: () => void,
 ): Promise<Blob> {
 	let lastError = "";
+	let wasRetrying = false;
 	for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 		try {
 			const blob = await generateChunkAudio(text, settings);
-			if (attempt > 1) onRetry(false); // was retrying, now succeeded
+			if (wasRetrying) onRetryEnd();
 			return blob;
 		} catch (err) {
 			lastError = err instanceof Error ? err.message : String(err);
 			const transient = isTransientError(lastError);
 
 			if (attempt < MAX_RETRIES && transient) {
-				onRetry(true);
+				if (!wasRetrying) {
+					wasRetrying = true;
+					onRetryStart();
+				}
 				const delay = getRetryDelay(attempt, lastError);
 				console.warn(
 					`MP3 Export: Chunk ${index + 1}/${total} attempt ${attempt}/${MAX_RETRIES} failed (${lastError}), retrying in ${delay / 1000}s`,
@@ -217,7 +250,7 @@ async function generateOneChunkWithRetry(
 			}
 
 			// Non-transient error or max retries exhausted
-			onRetry(false);
+			if (wasRetrying) onRetryEnd();
 			break;
 		}
 	}
@@ -230,16 +263,21 @@ async function generateAllChunks(
 	chunks: SentenceInfo[],
 	settings: TTSReaderSettings,
 	concurrency: number,
-	onProgress: (done: number, total: number, retrying: number) => void,
+	onProgress: (done: number, total: number, retrying: number, lastError: string) => void,
 ): Promise<Blob[]> {
 	const total = chunks.length;
 	const results: (Blob | null)[] = new Array(total).fill(null);
 	let nextIndex = 0;
 	let doneCount = 0;
 	let retryingCount = 0;
+	let lastError = "";
 
 	return new Promise<Blob[]>((resolve, reject) => {
 		let rejected = false;
+
+		function report() {
+			onProgress(doneCount, total, retryingCount, lastError);
+		}
 
 		function startNext() {
 			if (rejected) return;
@@ -256,21 +294,19 @@ async function generateAllChunks(
 				i,
 				total,
 				settings,
-				(isRetrying) => {
-					retryingCount += isRetrying ? 1 : -1;
-					retryingCount = Math.max(0, retryingCount);
-					onProgress(doneCount, total, retryingCount);
-				},
+				() => { retryingCount++; report(); },
+				() => { retryingCount = Math.max(0, retryingCount - 1); report(); },
 			)
 				.then((blob) => {
 					results[i] = blob;
 					doneCount++;
-					onProgress(doneCount, total, retryingCount);
+					report();
 					startNext();
 				})
 				.catch((err) => {
 					if (!rejected) {
 						rejected = true;
+						lastError = err instanceof Error ? err.message : String(err);
 						reject(err);
 					}
 				});
@@ -337,9 +373,10 @@ export async function exportToMp3(
 		chunks,
 		settings,
 		concurrency,
-		(done, total, retrying) => {
-			const msg = `MP3 Export: ${done}/${total} chunks done` +
-				(retrying > 0 ? ` (${retrying} retrying)` : "");
+		(done, total, retrying, lastErr) => {
+			let msg = `MP3 Export: ${done}/${total} chunks done`;
+			if (retrying > 0) msg += ` (${retrying} retrying)`;
+			if (lastErr) msg += `\nLast error: ${lastErr.slice(0, 100)}`;
 			notice.setMessage(msg);
 		},
 	);

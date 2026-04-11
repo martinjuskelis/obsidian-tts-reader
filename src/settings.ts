@@ -435,6 +435,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					this.plugin.stopPlaybackPublic();
 					setModelSetting(this.plugin.settings, modelId, "voice", v);
 					await this.plugin.saveSettings();
+					this.display();
 				});
 			});
 		}
@@ -465,6 +466,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					this.plugin.stopPlaybackPublic();
 					setModelSetting(this.plugin.settings, modelId, "voice", v);
 					await this.plugin.saveSettings();
+					this.display(); // re-render to show/hide reset button
 				});
 			});
 
