@@ -56,19 +56,22 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 			);
 
 		// --- Speed ---
-		new Setting(containerEl)
-			.setName("Default speed")
-			.setDesc(`${SPEED_MIN}x \u2013 ${SPEED_MAX}x`)
-			.addSlider((s) =>
-				s
-					.setLimits(SPEED_MIN, SPEED_MAX, SPEED_STEP)
-					.setValue(this.plugin.settings.speed)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						this.plugin.settings.speed = v;
-						await this.plugin.saveSettings();
-					}),
-			);
+		this.addGlobalReset(
+			new Setting(containerEl)
+				.setName("Default speed")
+				.setDesc(`${SPEED_MIN}x \u2013 ${SPEED_MAX}x`)
+				.addSlider((s) =>
+					s
+						.setLimits(SPEED_MIN, SPEED_MAX, SPEED_STEP)
+						.setValue(this.plugin.settings.speed)
+						.setDynamicTooltip()
+						.onChange(async (v) => {
+							this.plugin.settings.speed = v;
+							await this.plugin.saveSettings();
+						}),
+				),
+			"speed",
+		);
 
 		// --- Web Speech voice ---
 		if (this.plugin.settings.backend === "webspeech") {
@@ -333,36 +336,42 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(containerEl)
-			.setName("Toolbar bottom padding")
-			.setDesc("Extra space below the toolbar (pixels). Increase on mobile if Obsidian's navigation bar covers the controls.")
-			.addSlider((s) =>
-				s
-					.setLimits(0, 200, 10)
-					.setValue(this.plugin.settings.toolbarPadding)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						this.plugin.settings.toolbarPadding = v;
-						await this.plugin.saveSettings();
-					}),
-			);
+		this.addGlobalReset(
+			new Setting(containerEl)
+				.setName("Toolbar bottom padding")
+				.setDesc("Extra space below the toolbar (pixels). Increase on mobile if Obsidian's navigation bar covers the controls.")
+				.addSlider((s) =>
+					s
+						.setLimits(0, 200, 10)
+						.setValue(this.plugin.settings.toolbarPadding)
+						.setDynamicTooltip()
+						.onChange(async (v) => {
+							this.plugin.settings.toolbarPadding = v;
+							await this.plugin.saveSettings();
+						}),
+				),
+			"toolbarPadding",
+		);
 
 		// --- Export ---
 		new Setting(containerEl).setName("Export").setHeading();
 
-		new Setting(containerEl)
-			.setName("Export parallel requests")
-			.setDesc("Number of simultaneous API calls when exporting to MP3. Higher = faster export but may hit rate limits.")
-			.addSlider((s) =>
-				s
-					.setLimits(1, 20, 1)
-					.setValue(this.plugin.settings.exportConcurrency)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						this.plugin.settings.exportConcurrency = v;
-						await this.plugin.saveSettings();
-					}),
-			);
+		this.addGlobalReset(
+			new Setting(containerEl)
+				.setName("Export parallel requests")
+				.setDesc("Number of simultaneous API calls when exporting to MP3. Higher = faster export but may hit rate limits.")
+				.addSlider((s) =>
+					s
+						.setLimits(1, 20, 1)
+						.setValue(this.plugin.settings.exportConcurrency)
+						.setDynamicTooltip()
+						.onChange(async (v) => {
+							this.plugin.settings.exportConcurrency = v;
+							await this.plugin.saveSettings();
+						}),
+				),
+			"exportConcurrency",
+		);
 
 		// --- Advanced ---
 		new Setting(containerEl).setName("Advanced").setHeading();
@@ -522,25 +531,55 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 		this.addModelReset(setting, modelId, key);
 	}
 
-	/** Add a reset button to a setting, only if the value differs from default. */
+	/** Add a reset button to a per-model setting. Dimmed when already at default. */
 	private addModelReset(
 		setting: Setting,
 		modelId: string,
 		key: keyof ModelSettings,
 	): void {
-		if (!isModelSettingChanged(this.plugin.settings, modelId, key)) return;
+		const changed = isModelSettingChanged(this.plugin.settings, modelId, key);
 		const defaultVal = getModelDefaults(modelId)[key];
-		setting.addExtraButton((btn) =>
+		setting.addExtraButton((btn) => {
 			btn
 				.setIcon("reset")
-				.setTooltip(`Reset to default (${defaultVal})`)
+				.setTooltip(changed ? `Reset to default (${defaultVal})` : `At default (${defaultVal})`)
 				.onClick(async () => {
+					if (!changed) return;
 					this.plugin.stopPlaybackPublic();
 					resetModelSetting(this.plugin.settings, modelId, key);
 					await this.plugin.saveSettings();
 					this.display();
-				}),
-		);
+				});
+			if (!changed) {
+				btn.extraSettingsEl.style.opacity = "0.25";
+				btn.extraSettingsEl.style.cursor = "default";
+			}
+		});
+	}
+
+	/** Add a reset button to a global setting. Dimmed when already at default. */
+	private addGlobalReset<K extends keyof typeof DEFAULT_SETTINGS>(
+		setting: Setting,
+		key: K,
+	): void {
+		const current = this.plugin.settings[key];
+		const defaultVal = DEFAULT_SETTINGS[key];
+		const changed = current !== defaultVal;
+		setting.addExtraButton((btn) => {
+			btn
+				.setIcon("reset")
+				.setTooltip(changed ? `Reset to default (${defaultVal})` : `At default (${defaultVal})`)
+				.onClick(async () => {
+					if (!changed) return;
+					(this.plugin.settings as any)[key] = defaultVal;
+					await this.plugin.saveSettings();
+					this.display();
+				});
+			if (!changed) {
+				btn.extraSettingsEl.style.opacity = "0.25";
+				btn.extraSettingsEl.style.cursor = "default";
+			}
+		});
 	}
 
 	/** Render a "Reset all to defaults" button for a model. */

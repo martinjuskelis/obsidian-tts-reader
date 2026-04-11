@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tts-reader",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "description": "TTS Reader for Obsidian",
   "main": "main.js",
   "scripts": {
