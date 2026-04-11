@@ -271,7 +271,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 			// Chunk size
 			this.renderModelSlider(containerEl, modelId, "chunkSize",
 				"Chunk size",
-				`Characters per TTS request. Larger = better prosody but slower loading. Max: ${GEMINI_MAX_CHARS}.`,
+				`Characters per TTS request. Gemini quality degrades past ~2000 chars — keep under ${GEMINI_MAX_CHARS} to avoid distortion.`,
 				100, GEMINI_MAX_CHARS, 50);
 
 			// Buffer ahead

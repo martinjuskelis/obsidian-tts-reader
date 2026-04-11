@@ -14,17 +14,19 @@ import {
 // Export configuration per backend
 // ---------------------------------------------------------------------------
 
-/** Max chunk size for export (maximize prosody quality). */
+/** Max chunk size for export (maximize prosody within quality limits). */
 function getExportChunkSize(settings: TTSReaderSettings): number {
 	switch (settings.backend) {
 		case "openai": {
+			// OpenAI quality stays consistent up to the hard limit
 			const modelDef = OPENAI_MODELS.find(
 				(m) => m.id === settings.openaiModel,
 			);
 			return modelDef ? modelDef.maxChars - 100 : 3500;
 		}
 		case "gemini":
-			return 4000; // stay under the ~5:27 audio wall
+			// Gemini quality degrades past ~2000 chars; 1500 is safe
+			return 1500;
 		case "deepinfra":
 			return 0; // sentence-level
 		default:
