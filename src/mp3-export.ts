@@ -2,8 +2,6 @@ import { Notice, TFile, requestUrl } from "obsidian";
 import { Mp3Encoder } from "@breezystack/lamejs";
 import { extractChunks } from "./text-extractor";
 import {
-	OPENAI_MODELS,
-	GEMINI_MAX_CHARS,
 	getActiveModelId,
 	getModelSetting,
 	type TTSReaderSettings,
@@ -14,24 +12,11 @@ import {
 // Export configuration per backend
 // ---------------------------------------------------------------------------
 
-/** Max chunk size for export (maximize prosody within quality limits). */
+/** Get export chunk size from per-model settings. */
 function getExportChunkSize(settings: TTSReaderSettings): number {
-	switch (settings.backend) {
-		case "openai": {
-			// OpenAI quality stays consistent up to the hard limit
-			const modelDef = OPENAI_MODELS.find(
-				(m) => m.id === settings.openaiModel,
-			);
-			return modelDef ? modelDef.maxChars - 100 : 3500;
-		}
-		case "gemini":
-			// Gemini quality degrades past ~2000 chars; 1500 is safe
-			return 1500;
-		case "deepinfra":
-			return 0; // sentence-level
-		default:
-			return 0;
-	}
+	const modelId = getActiveModelId(settings);
+	if (!modelId) return 0;
+	return getModelSetting(settings, modelId, "exportChunkSize");
 }
 
 // ---------------------------------------------------------------------------

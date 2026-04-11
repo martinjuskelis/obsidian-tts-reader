@@ -7,28 +7,31 @@ export type Backend = "webspeech" | "deepinfra" | "openai" | "gemini";
 export interface ModelSettings {
 	voice: string;
 	bufferAhead: number;
-	/** Max chars per TTS chunk. 0 = sentence-level (DeepInfra). */
+	/** Max chars per TTS chunk for interactive playback. 0 = sentence-level. */
 	chunkSize: number;
+	/** Max chars per TTS chunk for MP3 export. Larger = better prosody. */
+	exportChunkSize: number;
 }
 
 /** Default settings per model ID. */
 export const MODEL_DEFAULTS: Record<string, ModelSettings> = {
-	// --- DeepInfra ---
-	"hexgrad/Kokoro-82M": { voice: "af_heart", bufferAhead: 3, chunkSize: 0 },
-	"canopylabs/orpheus-3b-0.1-ft": { voice: "tara", bufferAhead: 5, chunkSize: 0 },
-	"Qwen/Qwen3-TTS": { voice: "Vivian", bufferAhead: 6, chunkSize: 0 },
-	"ResembleAI/chatterbox": { voice: "scarlett", bufferAhead: 5, chunkSize: 0 },
+	// --- DeepInfra (sentence-level, no chunking) ---
+	"hexgrad/Kokoro-82M": { voice: "af_heart", bufferAhead: 3, chunkSize: 0, exportChunkSize: 0 },
+	"canopylabs/orpheus-3b-0.1-ft": { voice: "tara", bufferAhead: 5, chunkSize: 0, exportChunkSize: 0 },
+	"Qwen/Qwen3-TTS": { voice: "Vivian", bufferAhead: 6, chunkSize: 0, exportChunkSize: 0 },
+	"ResembleAI/chatterbox": { voice: "scarlett", bufferAhead: 5, chunkSize: 0, exportChunkSize: 0 },
 	"Qwen/Qwen3-TTS-VoiceDesign": {
 		voice: "A composed, clear adult female voice with a neutral American accent, steady pace, and warm tone",
 		bufferAhead: 6,
 		chunkSize: 0,
+		exportChunkSize: 0,
 	},
-	// --- OpenAI ---
-	"tts-1": { voice: "nova", bufferAhead: 3, chunkSize: 200 },
-	"tts-1-hd": { voice: "nova", bufferAhead: 4, chunkSize: 400 },
-	"gpt-4o-mini-tts": { voice: "nova", bufferAhead: 3, chunkSize: 200 },
-	// --- Gemini ---
-	"gemini-2.5-flash-preview-tts": { voice: "Zephyr", bufferAhead: 3, chunkSize: 200 },
+	// --- OpenAI (quality consistent up to hard limit) ---
+	"tts-1": { voice: "nova", bufferAhead: 3, chunkSize: 200, exportChunkSize: 3500 },
+	"tts-1-hd": { voice: "nova", bufferAhead: 4, chunkSize: 400, exportChunkSize: 3500 },
+	"gpt-4o-mini-tts": { voice: "nova", bufferAhead: 3, chunkSize: 200, exportChunkSize: 1700 },
+	// --- Gemini (quality degrades past ~2000 chars) ---
+	"gemini-2.5-flash-preview-tts": { voice: "Zephyr", bufferAhead: 3, chunkSize: 200, exportChunkSize: 1500 },
 };
 
 /** Fallback for unknown models. */
@@ -36,6 +39,7 @@ const FALLBACK_MODEL_SETTINGS: ModelSettings = {
 	voice: "",
 	bufferAhead: 5,
 	chunkSize: 200,
+	exportChunkSize: 1500,
 };
 
 /** Get defaults for a model, falling back to generic defaults. */
@@ -86,7 +90,7 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	skipFrontmatter: true,
 	autoScroll: true,
 	toolbarPadding: 0,
-	exportConcurrency: 20,
+	exportConcurrency: 10,
 	globalOverrides: [],
 	editorLineIndicator: true,
 	debug: false,

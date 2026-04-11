@@ -226,9 +226,15 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 			// Chunk size
 			this.renderModelSlider(containerEl, modelId, "chunkSize",
-				"Chunk size",
-				`Characters per TTS request. Larger = better prosody but slower loading. Max: ${maxChars}.`,
+				"Chunk size (playback)",
+				`Characters per TTS request for interactive reading. Smaller = faster loading and navigation.`,
 				100, maxChars, 50);
+
+			// Export chunk size
+			this.renderModelSlider(containerEl, modelId, "exportChunkSize",
+				"Chunk size (export)",
+				`Characters per chunk when exporting to MP3. Larger = better prosody in the exported file. Max: ${maxChars}.`,
+				100, maxChars, 100);
 
 			// Buffer ahead
 			this.renderModelSlider(containerEl, modelId, "bufferAhead",
@@ -270,9 +276,15 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 
 			// Chunk size
 			this.renderModelSlider(containerEl, modelId, "chunkSize",
-				"Chunk size",
-				`Characters per TTS request. Gemini quality degrades past ~2000 chars — keep under ${GEMINI_MAX_CHARS} to avoid distortion.`,
+				"Chunk size (playback)",
+				"Characters per TTS request for interactive reading. Smaller = faster loading and navigation.",
 				100, GEMINI_MAX_CHARS, 50);
+
+			// Export chunk size
+			this.renderModelSlider(containerEl, modelId, "exportChunkSize",
+				"Chunk size (export)",
+				`Characters per chunk when exporting to MP3. Gemini quality degrades past ~2000 chars — keep under ${GEMINI_MAX_CHARS}.`,
+				100, GEMINI_MAX_CHARS, 100);
 
 			// Buffer ahead
 			this.renderModelSlider(containerEl, modelId, "bufferAhead",
@@ -509,7 +521,7 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 	private renderModelSlider(
 		containerEl: HTMLElement,
 		modelId: string,
-		key: "bufferAhead" | "chunkSize",
+		key: "bufferAhead" | "chunkSize" | "exportChunkSize",
 		name: string,
 		desc: string,
 		min: number,
@@ -534,30 +546,24 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 		this.addModelReset(setting, modelId, key);
 	}
 
-	/** Add a reset button to a per-model setting. Dimmed when already at default. */
+	/** Add a reset button to a per-model setting. */
 	private addModelReset(
 		setting: Setting,
 		modelId: string,
 		key: keyof ModelSettings,
 	): void {
-		const isChanged = () => isModelSettingChanged(this.plugin.settings, modelId, key);
 		const defaultVal = getModelDefaults(modelId)[key];
-		setting.addExtraButton((btn) => {
+		setting.addExtraButton((btn) =>
 			btn
 				.setIcon("reset")
-				.setTooltip(isChanged() ? `Reset to default (${defaultVal})` : `At default (${defaultVal})`)
+				.setTooltip(`Reset to default (${defaultVal})`)
 				.onClick(async () => {
-					if (!isChanged()) return;
 					this.plugin.stopPlaybackPublic();
 					resetModelSetting(this.plugin.settings, modelId, key);
 					await this.plugin.saveSettings();
 					this.display();
-				});
-			if (!isChanged()) {
-				btn.extraSettingsEl.style.opacity = "0.25";
-				btn.extraSettingsEl.style.cursor = "default";
-			}
-		});
+				}),
+		);
 	}
 
 	/** Mark a global setting as explicitly modified by the user. */
@@ -575,30 +581,24 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 		return DEFAULT_SETTINGS[key];
 	}
 
-	/** Add a reset button to a global setting. Dimmed when tracking default. */
+	/** Add a reset button to a global setting. */
 	private addGlobalReset<K extends keyof typeof DEFAULT_SETTINGS>(
 		setting: Setting,
 		key: K,
 	): void {
-		const isChanged = () => this.plugin.settings.globalOverrides.includes(key as string);
 		const defaultVal = this.getEffectiveDefault(key);
-		setting.addExtraButton((btn) => {
+		setting.addExtraButton((btn) =>
 			btn
 				.setIcon("reset")
-				.setTooltip(isChanged() ? `Reset to default (${defaultVal})` : `Tracking default (${defaultVal})`)
+				.setTooltip(`Reset to default (${defaultVal})`)
 				.onClick(async () => {
-					if (!isChanged()) return;
 					(this.plugin.settings as any)[key] = defaultVal;
 					this.plugin.settings.globalOverrides =
 						this.plugin.settings.globalOverrides.filter((k) => k !== key);
 					await this.plugin.saveSettings();
 					this.display();
-				});
-			if (!isChanged()) {
-				btn.extraSettingsEl.style.opacity = "0.25";
-				btn.extraSettingsEl.style.cursor = "default";
-			}
-		});
+				}),
+		);
 	}
 
 	/** Render a "Reset all to defaults" button for a model. */
