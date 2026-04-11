@@ -540,20 +540,20 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 		modelId: string,
 		key: keyof ModelSettings,
 	): void {
-		const changed = isModelSettingChanged(this.plugin.settings, modelId, key);
+		const isChanged = () => isModelSettingChanged(this.plugin.settings, modelId, key);
 		const defaultVal = getModelDefaults(modelId)[key];
 		setting.addExtraButton((btn) => {
 			btn
 				.setIcon("reset")
-				.setTooltip(changed ? `Reset to default (${defaultVal})` : `At default (${defaultVal})`)
+				.setTooltip(isChanged() ? `Reset to default (${defaultVal})` : `At default (${defaultVal})`)
 				.onClick(async () => {
-					if (!changed) return;
+					if (!isChanged()) return;
 					this.plugin.stopPlaybackPublic();
 					resetModelSetting(this.plugin.settings, modelId, key);
 					await this.plugin.saveSettings();
 					this.display();
 				});
-			if (!changed) {
+			if (!isChanged()) {
 				btn.extraSettingsEl.style.opacity = "0.25";
 				btn.extraSettingsEl.style.cursor = "default";
 			}
@@ -580,21 +580,21 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 		setting: Setting,
 		key: K,
 	): void {
-		const changed = this.plugin.settings.globalOverrides.includes(key as string);
+		const isChanged = () => this.plugin.settings.globalOverrides.includes(key as string);
 		const defaultVal = this.getEffectiveDefault(key);
 		setting.addExtraButton((btn) => {
 			btn
 				.setIcon("reset")
-				.setTooltip(changed ? `Reset to default (${defaultVal})` : `Tracking default (${defaultVal})`)
+				.setTooltip(isChanged() ? `Reset to default (${defaultVal})` : `Tracking default (${defaultVal})`)
 				.onClick(async () => {
-					if (!changed) return;
+					if (!isChanged()) return;
 					(this.plugin.settings as any)[key] = defaultVal;
 					this.plugin.settings.globalOverrides =
 						this.plugin.settings.globalOverrides.filter((k) => k !== key);
 					await this.plugin.saveSettings();
 					this.display();
 				});
-			if (!changed) {
+			if (!isChanged()) {
 				btn.extraSettingsEl.style.opacity = "0.25";
 				btn.extraSettingsEl.style.cursor = "default";
 			}
