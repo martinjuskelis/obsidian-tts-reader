@@ -322,6 +322,22 @@ export class TTSReaderSettingTab extends PluginSettingTab {
 					}),
 			);
 
+		new Setting(containerEl)
+			.setName("Strip footnotes & citations")
+			.setDesc(
+				"Remove footnote markers, scripture/page references, bracketed citations, " +
+				"and stray OCR footnote numbers. Keeps parenthetical prose, editor " +
+				"insertions like [merciful], and transliterations like (sôphrosunê).",
+			)
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.stripFootnoteRefs)
+					.onChange(async (v) => {
+						this.plugin.settings.stripFootnoteRefs = v;
+						await this.plugin.saveSettings();
+					}),
+			);
+
 		// --- Behavior ---
 		new Setting(containerEl).setName("Behavior").setHeading();
 

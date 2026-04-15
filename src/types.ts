@@ -67,6 +67,7 @@ export interface TTSReaderSettings {
 	// Global settings
 	skipCodeBlocks: boolean;
 	skipFrontmatter: boolean;
+	stripFootnoteRefs: boolean;
 	autoScroll: boolean;
 	toolbarPadding: number;
 	exportConcurrency: number;
@@ -88,6 +89,7 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	modelSettings: {},
 	skipCodeBlocks: true,
 	skipFrontmatter: true,
+	stripFootnoteRefs: true,
 	autoScroll: true,
 	toolbarPadding: 0,
 	exportConcurrency: 10,

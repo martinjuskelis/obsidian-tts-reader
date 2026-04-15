@@ -305,6 +305,7 @@ export default class TTSReaderPlugin extends Plugin {
 			this.settings.skipCodeBlocks,
 			this.settings.skipFrontmatter,
 			maxChunkChars,
+			this.settings.stripFootnoteRefs,
 		);
 
 		if (sentences.length === 0) {

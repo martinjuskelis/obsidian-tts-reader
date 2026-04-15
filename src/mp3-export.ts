@@ -343,6 +343,7 @@ export async function exportToMp3(
 		settings.skipCodeBlocks,
 		settings.skipFrontmatter,
 		exportChunkSize,
+		settings.stripFootnoteRefs,
 	);
 
 	if (chunks.length === 0) {
