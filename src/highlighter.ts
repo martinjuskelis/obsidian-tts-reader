@@ -1,6 +1,17 @@
 import type { SentenceInfo } from "./types";
 
 /**
+ * Gap pattern between consecutive words when matching a sentence in the DOM.
+ *
+ * Lazy, up to 40 chars of any character — enough to span a footnote marker,
+ * a superscript number, a scripture reference, or an OCR page marker that
+ * got stripped from the extracted sentence but still lives in the DOM.
+ * Lazy so it prefers the tightest match (plain whitespace) when there's no
+ * intervening junk, keeping occurrence counts aligned with extraction.
+ */
+const WORD_GAP = "[\\s\\S]{0,40}?";
+
+/**
  * Elements whose text content should be excluded from the search buffer.
  */
 const SKIP_SELECTOR = [
@@ -165,7 +176,7 @@ export class Highlighter {
 		// Build regex and find all matches
 		const words = text.split(/\s+/).filter((w) => w.length > 0);
 		if (words.length === 0) return -1;
-		const pattern = words.map(escapeRegex).join("\\s*");
+		const pattern = words.map(escapeRegex).join(WORD_GAP);
 		const regex = new RegExp(pattern, "g");
 
 		let occurrence = 0;
@@ -210,7 +221,7 @@ export class Highlighter {
 		const words = text.split(/\s+/).filter((w) => w.length > 0);
 		if (words.length === 0) return [];
 
-		const pattern = words.map(escapeRegex).join("\\s*");
+		const pattern = words.map(escapeRegex).join(WORD_GAP);
 		const regex = new RegExp(pattern, "g");
 
 		// Find ALL matches, then pick the Nth one
