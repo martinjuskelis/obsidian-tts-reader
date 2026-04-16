@@ -51,6 +51,16 @@ export function getModelDefaults(modelId: string): ModelSettings {
 // Plugin settings
 // ---------------------------------------------------------------------------
 
+/** Bookmark for resume-on-reopen. Keyed by file path in settings.readingPositions. */
+export interface ReadingPosition {
+	/** Sentence index within the last-extracted sentence list. */
+	sentenceIndex: number;
+	/** First ~100 chars of the sentence text, used to re-anchor after edits. */
+	sentenceText: string;
+	/** Epoch millis — lets us prune stale entries later if we want. */
+	updatedAt: number;
+}
+
 export interface TTSReaderSettings {
 	backend: Backend;
 	webSpeechVoice: string;
@@ -75,6 +85,8 @@ export interface TTSReaderSettings {
 	globalOverrides: string[];
 	editorLineIndicator: boolean;
 	debug: boolean;
+	/** Resume-reading bookmarks, keyed by file path. */
+	readingPositions: Record<string, ReadingPosition>;
 }
 
 export const DEFAULT_SETTINGS: TTSReaderSettings = {
@@ -96,6 +108,7 @@ export const DEFAULT_SETTINGS: TTSReaderSettings = {
 	globalOverrides: [],
 	editorLineIndicator: true,
 	debug: false,
+	readingPositions: {},
 };
 
 /**

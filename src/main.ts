@@ -42,6 +42,7 @@ export default class TTSReaderPlugin extends Plugin {
 	private sentenceOffsets: number[] = [];
 	private playbackLeaf: WorkspaceLeaf | null = null;
 	private playbackFilePath: string | null = null;
+	private savePositionTimer: number | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -313,8 +314,10 @@ export default class TTSReaderPlugin extends Plugin {
 			return;
 		}
 
-		// Determine start index — build offset map once if in editor mode
+		// Build offsets once — we need them in editor mode for auto-scroll
+		// and the line indicator, and when startOffset is explicit.
 		let startIndex = 0;
+		const filePath = view.file?.path ?? null;
 		const offsets =
 			isEditorMode || startOffset != null
 				? buildSentenceOffsets(markdown, sentences)
@@ -325,7 +328,16 @@ export default class TTSReaderPlugin extends Plugin {
 		} else if (isEditorMode) {
 			const cursor = view.editor.getCursor();
 			const cursorOffset = view.editor.posToOffset(cursor);
-			startIndex = findSentenceAtOffset(offsets, cursorOffset);
+			const cursorIndex = findSentenceAtOffset(offsets, cursorOffset);
+			// In editor mode, prefer cursor position if it's not at the top
+			// (user deliberately placed it). Fall back to saved bookmark if
+			// cursor is at the beginning.
+			startIndex = cursorIndex > 0
+				? cursorIndex
+				: this.getResumeIndex(filePath, sentences);
+		} else {
+			// Reading View: respect the saved bookmark so Kindle-style resume works.
+			startIndex = this.getResumeIndex(filePath, sentences);
 		}
 
 		const engine = await this.getEngine();
@@ -361,11 +373,10 @@ export default class TTSReaderPlugin extends Plugin {
 
 		if (isEditorMode) {
 			this.setupEditorClickToJump(view);
-			if (this.settings.editorLineIndicator) {
-				this.editorCmView =
-					(view.editor as any).cm ?? null;
-				this.sentenceOffsets = offsets;
-			}
+			// Always keep offsets + cm view handy in editor mode — the line
+			// indicator, auto-scroll, and locate button all need them.
+			this.editorCmView = (view.editor as any).cm ?? null;
+			this.sentenceOffsets = offsets;
 		} else if (previewEl) {
 			this.setupClickToJump(previewEl);
 		}
@@ -381,6 +392,8 @@ export default class TTSReaderPlugin extends Plugin {
 	}
 
 	private stopPlayback(): void {
+		// Persist the bookmark before we drop the file reference.
+		this.flushReadingPosition();
 		this.playbackLeaf = null;
 		this.playbackFilePath = null;
 		this.clearEditorIndicator();
@@ -523,6 +536,8 @@ export default class TTSReaderPlugin extends Plugin {
 		};
 		toolbar.onLocate = () => {
 			this.highlighter?.scrollToCurrent();
+			const idx = this.controller?.sentenceIndex ?? -1;
+			if (idx >= 0) this.scrollEditorToSentence(idx);
 		};
 		toolbar.updateAutoScroll(this.settings.autoScroll);
 	}
@@ -538,6 +553,10 @@ export default class TTSReaderPlugin extends Plugin {
 		this.controller.onSentenceChange = (index, total) => {
 			toolbar.updateProgress(index, total);
 			this.updateEditorIndicator(index);
+			this.scheduleSaveReadingPosition(index);
+			if (this.settings.autoScroll) {
+				this.scrollEditorToSentence(index);
+			}
 		};
 
 		this.controller.onError = (msg) => {
@@ -547,8 +566,11 @@ export default class TTSReaderPlugin extends Plugin {
 
 		this.controller.onComplete = () => {
 			new Notice("TTS Reader: Finished reading.");
+			this.clearReadingPosition(this.playbackFilePath);
 			this.clearEditorIndicator();
 			this.teardownClickToJump();
+			this.playbackLeaf = null;
+			this.playbackFilePath = null;
 			if (this.toolbar) {
 				this.toolbar.destroy();
 				this.toolbar = null;
@@ -742,10 +764,125 @@ export default class TTSReaderPlugin extends Plugin {
 		return best;
 	}
 
+	// --- Editor scroll ---
+
+	/**
+	 * Scroll the CodeMirror editor so the current sentence is visible.
+	 * No-op in preview mode or before offsets are built.
+	 */
+	private scrollEditorToSentence(index: number): void {
+		const cm = this.getLiveEditorView();
+		if (!cm) return;
+		const pos = this.sentenceOffsets[index];
+		if (pos == null) return;
+		try {
+			cm.dispatch({
+				effects: EditorView.scrollIntoView(pos, { y: "center" }),
+			});
+		} catch {
+			// EditorView destroyed (mode switch, leaf closed)
+		}
+	}
+
+	/**
+	 * Return the current CM view, looking it up fresh each time because it
+	 * gets rebuilt on every preview ↔ edit mode switch.
+	 */
+	private getLiveEditorView(): EditorView | null {
+		const view = this.playbackLeaf?.view as MarkdownView | undefined;
+		if (!view || view.getMode() === "preview") return null;
+		return (view.editor as any)?.cm ?? null;
+	}
+
+	// --- Resume bookmark ---
+
+	private scheduleSaveReadingPosition(index: number): void {
+		const path = this.playbackFilePath;
+		if (!path) return;
+		const sentence = this.controller?.sentences[index];
+		if (!sentence) return;
+
+		// Update in-memory immediately so stopPlayback can flush reliably.
+		this.settings.readingPositions[path] = {
+			sentenceIndex: index,
+			sentenceText: sentence.text.slice(0, 100),
+			updatedAt: Date.now(),
+		};
+
+		// Debounce the disk write — scrubbing prev/next fires many times.
+		if (this.savePositionTimer !== null) {
+			window.clearTimeout(this.savePositionTimer);
+		}
+		this.savePositionTimer = window.setTimeout(() => {
+			this.savePositionTimer = null;
+			this.saveSettings();
+		}, 1500);
+	}
+
+	private flushReadingPosition(): void {
+		if (this.savePositionTimer === null) return;
+		window.clearTimeout(this.savePositionTimer);
+		this.savePositionTimer = null;
+		this.saveSettings();
+	}
+
+	private clearReadingPosition(path: string | null): void {
+		if (this.savePositionTimer !== null) {
+			window.clearTimeout(this.savePositionTimer);
+			this.savePositionTimer = null;
+		}
+		if (!path || !this.settings.readingPositions[path]) return;
+		delete this.settings.readingPositions[path];
+		this.saveSettings();
+	}
+
+	/**
+	 * Find where to resume reading. Looks up the saved bookmark for this
+	 * file and re-anchors against the current sentence list (by text, then
+	 * by index) so resume survives minor edits.
+	 */
+	private getResumeIndex(
+		path: string | null,
+		sentences: readonly SentenceInfo[],
+	): number {
+		if (!path) return 0;
+		const saved = this.settings.readingPositions[path];
+		if (!saved) return 0;
+
+		const savedText = saved.sentenceText;
+		if (savedText && savedText.length > 0) {
+			// Exact match at saved index — fast path, covers unedited files.
+			const atIndex = sentences[saved.sentenceIndex];
+			if (atIndex && atIndex.text.startsWith(savedText)) {
+				return saved.sentenceIndex;
+			}
+			// Fall back to text search. Use the single match if there is one;
+			// if duplicates, pick the one closest to saved.sentenceIndex.
+			let bestIdx = -1;
+			let bestDist = Infinity;
+			for (let i = 0; i < sentences.length; i++) {
+				if (sentences[i].text.startsWith(savedText)) {
+					const dist = Math.abs(i - saved.sentenceIndex);
+					if (dist < bestDist) {
+						bestDist = dist;
+						bestIdx = i;
+					}
+				}
+			}
+			if (bestIdx >= 0) return bestIdx;
+		}
+
+		// Text anchor gone — clamp saved index and hope for the best.
+		return Math.min(saved.sentenceIndex, Math.max(0, sentences.length - 1));
+	}
+
 	// --- Editor line indicator ---
 
 	private updateEditorIndicator(index: number): void {
-		if (!this.editorCmView || this.sentenceOffsets.length === 0) return;
+		if (!this.settings.editorLineIndicator) return;
+		if (this.sentenceOffsets.length === 0) return;
+		const cm = this.getLiveEditorView();
+		if (!cm) return;
 
 		const from = this.sentenceOffsets[index];
 		// Use next sentence offset (or estimate) to cover multi-line sentences
@@ -756,7 +893,7 @@ export default class TTSReaderPlugin extends Plugin {
 					(this.controller?.sentences[index]?.text.length ?? 0);
 
 		try {
-			updateTTSLineIndicator(this.editorCmView, { from, to });
+			updateTTSLineIndicator(cm, { from, to });
 		} catch {
 			// EditorView may be destroyed
 		}
