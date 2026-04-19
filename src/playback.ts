@@ -160,6 +160,7 @@ export class PlaybackController {
 			const sentence = this._sentences[this.currentIndex];
 
 			this.onSentenceChange?.(this.currentIndex, this._sentences.length);
+			this.highlighter.setProgress(this.currentIndex, this._sentences.length);
 			this.highlighter.highlight(sentence, this.autoScroll);
 			this.preBufferNext();
 

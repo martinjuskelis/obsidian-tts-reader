@@ -81,6 +81,10 @@ function stripMarkdown(
 	// HTML tags
 	text = text.replace(/<[^>]+>/g, "");
 
+	// Heading markers → own paragraph (also ensures the heading doesn't merge
+	// with the following line's first sentence).
+	text = text.replace(/^#{1,6}\s+(.+)$/gm, "\n\n$1\n\n");
+
 	// Comments  (%%...%%)
 	text = text.replace(/%%[\s\S]*?%%/g, "");
 

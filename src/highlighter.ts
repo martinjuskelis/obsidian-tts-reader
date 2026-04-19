@@ -59,6 +59,10 @@ export class Highlighter {
 	private lastRanges: Range[] = [];
 	private lastSentenceText = "";
 	private lastOccurrence = 0;
+	/** 0–1 ratio of current sentence position through the document.
+	 *  Used by scrollToCurrent() to estimate where to jump when the target
+	 *  section has been de-rendered by Obsidian's lazy renderer. */
+	private progress = 0;
 
 	constructor() {
 		this.useCustomHighlight =
@@ -69,6 +73,12 @@ export class Highlighter {
 
 	setContainer(el: HTMLElement): void {
 		this.container = el;
+	}
+
+	/** Update the sentence-position ratio so scrollToCurrent() can estimate
+	 *  a jump target when the target section is not currently rendered. */
+	setProgress(current: number, total: number): void {
+		this.progress = total > 0 ? current / total : 0;
 	}
 
 	highlight(sentence: SentenceInfo, autoScroll: boolean): void {
@@ -127,8 +137,10 @@ export class Highlighter {
 	}
 
 	scrollToCurrent(): void {
+		// 1. Stored ranges still connected — cheapest path.
 		if (this.tryScrollToRanges()) return;
 
+		// 2. Section is currently rendered but ranges went stale — re-search.
 		if (this.lastSentenceText) {
 			const ranges = this.findTextInDOM(
 				this.lastSentenceText,
@@ -141,8 +153,33 @@ export class Highlighter {
 			}
 		}
 
-		// Section de-rendered — no fallback scroll estimate needed;
-		// auto-scroll during playback will catch up on next sentence.
+		// 3. Section de-rendered by Obsidian. Jump to an estimated scroll
+		//    position to force a render, then find the exact text and scroll
+		//    precisely to it. Without this, long documents can't locate or
+		//    follow the current sentence until the user manually scrolls near.
+		const scrollEl = this.getScrollContainer();
+		if (!scrollEl || !this.lastSentenceText) return;
+
+		const target = scrollEl.scrollHeight * this.progress;
+		scrollEl.scrollTo({ top: target, behavior: "instant" });
+
+		window.setTimeout(() => {
+			const ranges = this.findTextInDOM(
+				this.lastSentenceText,
+				this.lastOccurrence,
+			);
+			if (ranges.length === 0) return;
+			this.lastRanges = ranges;
+			if (this.useCustomHighlight) {
+				try {
+					const hl = new Highlight(...ranges);
+					CSS.highlights.set("tts-reader-current", hl);
+				} catch {
+					// ignore — highlight API unavailable or range detached
+				}
+			}
+			this.scrollToRange(ranges[0]);
+		}, 150);
 	}
 
 	/** Reset cursor so next search uses progress-based positioning. */
