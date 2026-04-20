@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Platform, Plugin, TFile, type FileView, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Platform, Plugin, TFile, requireApiVersion, type FileView, type WorkspaceLeaf } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	OPENAI_MODELS,
@@ -23,6 +23,8 @@ import { PlaybackController } from "./playback";
 import { Toolbar } from "./toolbar";
 import type { Reader, SentenceContext } from "./reader";
 import { MarkdownReader } from "./markdown-reader";
+import { PdfReader } from "./pdf-reader";
+import { isPDFView } from "./pdf-types";
 
 export default class TTSReaderPlugin extends Plugin {
 	settings: TTSReaderSettings = DEFAULT_SETTINGS;
@@ -266,6 +268,14 @@ export default class TTSReaderPlugin extends Plugin {
 		if (mdView) {
 			return new MarkdownReader(mdView, this.markdownReaderOptions());
 		}
+		// PDFView isn't exported, so we peek the active leaf and duck-type.
+		// The private pdf.js chain was reshuffled in Obsidian 1.8 — gate there.
+		if (requireApiVersion("1.8.0")) {
+			const leafView = this.app.workspace.activeLeaf?.view ?? null;
+			if (isPDFView(leafView)) {
+				return new PdfReader(leafView, this.pdfReaderOptions());
+			}
+		}
 		return null;
 	}
 
@@ -276,6 +286,13 @@ export default class TTSReaderPlugin extends Plugin {
 			stripFootnoteRefs: this.settings.stripFootnoteRefs,
 			maxChunkChars: this.getMaxChunkChars(),
 			editorLineIndicator: this.settings.editorLineIndicator,
+		};
+	}
+
+	private pdfReaderOptions() {
+		return {
+			maxChunkChars: this.getMaxChunkChars(),
+			minCharsPerPage: 50,
 		};
 	}
 

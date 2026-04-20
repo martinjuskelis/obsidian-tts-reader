@@ -45,6 +45,21 @@ export function extractSentences(
 	return extractChunks(markdown, skipCodeBlocks, skipFrontmatter, 0, stripFootnoteRefs);
 }
 
+/**
+ * Segment already-plain text (e.g. from PDF extraction) — skips the
+ * markdown-stripping pass but reuses block splitting, Intl.Segmenter
+ * sentence segmentation, and chunk accumulation.
+ */
+export function extractChunksFromPlain(
+	plainText: string,
+	maxChunkChars: number,
+): SentenceInfo[] {
+	const blocks = splitIntoBlocks(plainText);
+	const sentences = segmentBlocks(blocks);
+	if (maxChunkChars <= 0) return sentences;
+	return accumulateChunks(sentences, blocks, maxChunkChars);
+}
+
 // ---------------------------------------------------------------------------
 // Step 1: Strip Markdown syntax
 // ---------------------------------------------------------------------------
