@@ -1,6 +1,7 @@
 import type { TTSEngine, SentenceInfo, PlaybackState } from "./types";
 import type { Highlighter } from "./highlighter";
 import type { DeepInfraEngine } from "./deepinfra";
+import type { SentenceContext } from "./reader";
 
 export class PlaybackController {
 	private _sentences: SentenceInfo[] = [];
@@ -20,6 +21,13 @@ export class PlaybackController {
 	onSentenceChange?: (index: number, total: number) => void;
 	onComplete?: () => void;
 	onError?: (message: string) => void;
+	/**
+	 * Fires before each sentence is highlighted. Returning a Promise pauses
+	 * the loop until the handler settles — readers use this to navigate
+	 * (e.g. scroll a PDF page in, await textlayerrendered) before the
+	 * Highlighter runs.
+	 */
+	onBeforeSentence?: (ctx: SentenceContext) => Promise<void> | void;
 
 	constructor(
 		engine: TTSEngine,
@@ -158,6 +166,18 @@ export class PlaybackController {
 			gen === this.generation
 		) {
 			const sentence = this._sentences[this.currentIndex];
+
+			if (this.onBeforeSentence) {
+				try {
+					await this.onBeforeSentence({
+						index: this.currentIndex,
+						sentence,
+					});
+				} catch (err) {
+					console.error("TTS Reader: onBeforeSentence error:", err);
+				}
+				if (gen !== this.generation) return;
+			}
 
 			this.onSentenceChange?.(this.currentIndex, this._sentences.length);
 			this.highlighter.setProgress(this.currentIndex, this._sentences.length);

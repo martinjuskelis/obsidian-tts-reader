@@ -1,5 +1,4 @@
-import { MarkdownView, Notice, Platform, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
-import { EditorView } from "@codemirror/view";
+import { MarkdownView, Notice, Platform, Plugin, TFile, type FileView, type WorkspaceLeaf } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	OPENAI_MODELS,
@@ -13,9 +12,7 @@ import {
 	type TTSEngine,
 } from "./types";
 import { TTSReaderSettingTab } from "./settings";
-import { extractChunks, extractSentences } from "./text-extractor";
-import { buildSentenceOffsets, findSentenceAtOffset } from "./position-map";
-import { ttsLineField, updateTTSLineIndicator } from "./editor-line-indicator";
+import { ttsLineField } from "./editor-line-indicator";
 import { WebSpeechEngine } from "./web-speech";
 import { DeepInfraEngine } from "./deepinfra";
 import { OpenAIEngine } from "./openai-tts";
@@ -24,6 +21,8 @@ import { exportToMp3 } from "./mp3-export";
 import { Highlighter } from "./highlighter";
 import { PlaybackController } from "./playback";
 import { Toolbar } from "./toolbar";
+import type { Reader, SentenceContext } from "./reader";
+import { MarkdownReader } from "./markdown-reader";
 
 export default class TTSReaderPlugin extends Plugin {
 	settings: TTSReaderSettings = DEFAULT_SETTINGS;
@@ -34,12 +33,8 @@ export default class TTSReaderPlugin extends Plugin {
 	private openaiEngine: OpenAIEngine | null = null;
 	private geminiEngine: GeminiTTSEngine | null = null;
 	private highlighter: Highlighter | null = null;
-	private clickHandler: ((e: MouseEvent) => void) | null = null;
-	private clickTarget: HTMLElement | null = null;
-	private editorClickHandler: ((e: MouseEvent) => void) | null = null;
-	private editorClickTarget: HTMLElement | null = null;
-	private editorCmView: EditorView | null = null;
-	private sentenceOffsets: number[] = [];
+	private reader: Reader | null = null;
+	private readerTeardown: (() => void) | null = null;
 	private playbackLeaf: WorkspaceLeaf | null = null;
 	private playbackFilePath: string | null = null;
 	private savePositionTimer: number | null = null;
@@ -62,10 +57,9 @@ export default class TTSReaderPlugin extends Plugin {
 			if (this.controller && this.controller.state !== "idle") {
 				this.stopPlayback();
 			} else {
-				const view =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (view) {
-					this.startPlayback(view);
+				const reader = this.createReaderForActiveView();
+				if (reader) {
+					this.startPlayback(reader);
 				} else {
 					new Notice("TTS Reader: Open a document first.");
 				}
@@ -92,14 +86,12 @@ export default class TTSReaderPlugin extends Plugin {
 
 		// Only stop playback when the user opens a DIFFERENT FILE in the
 		// original pane. Clicking other panels, sidebars, extensions,
-		// or even other MarkdownView panes does NOT stop playback.
+		// or even other same-type panes does NOT stop playback.
 		this.registerEvent(
-			this.app.workspace.on("active-leaf-change", (leaf) => {
+			this.app.workspace.on("active-leaf-change", () => {
 				if (!this.playbackLeaf || !this.playbackFilePath) return;
-				// Only care if the original playback pane now shows a different file
-				const currentFile = (
-					this.playbackLeaf.view as MarkdownView
-				)?.file?.path;
+				const currentFile =
+					(this.playbackLeaf.view as FileView | undefined)?.file?.path;
 				if (currentFile && currentFile !== this.playbackFilePath) {
 					this.stopPlayback();
 				}
@@ -135,11 +127,10 @@ export default class TTSReaderPlugin extends Plugin {
 			id: "start-reading",
 			name: "Start reading aloud",
 			checkCallback: (checking) => {
-				const view =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (!view) return false;
+				const reader = this.createReaderForActiveView();
+				if (!reader) return false;
 				if (checking) return true;
-				this.startPlayback(view);
+				this.startPlayback(reader);
 			},
 		});
 
@@ -150,9 +141,8 @@ export default class TTSReaderPlugin extends Plugin {
 				if (this.controller && this.controller.state !== "idle") {
 					this.stopPlayback();
 				} else {
-					const view =
-						this.app.workspace.getActiveViewOfType(MarkdownView);
-					if (view) this.startPlayback(view);
+					const reader = this.createReaderForActiveView();
+					if (reader) this.startPlayback(reader);
 					else new Notice("TTS Reader: Open a document first.");
 				}
 			},
@@ -235,12 +225,13 @@ export default class TTSReaderPlugin extends Plugin {
 				if (!view) return false;
 				if (checking) return true;
 
+				const reader = new MarkdownReader(view, this.markdownReaderOptions());
 				if (view.getMode() !== "preview") {
 					const cursor = view.editor.getCursor();
 					const offset = view.editor.posToOffset(cursor);
-					this.startPlayback(view, offset);
+					this.startPlayback(reader, offset);
 				} else {
-					this.startPlayback(view);
+					this.startPlayback(reader);
 				}
 			},
 		});
@@ -267,6 +258,27 @@ export default class TTSReaderPlugin extends Plugin {
 		});
 	}
 
+	// --- Reader construction ---
+
+	/** Build a reader for the active view, or null if it isn't a supported type. */
+	private createReaderForActiveView(): Reader | null {
+		const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (mdView) {
+			return new MarkdownReader(mdView, this.markdownReaderOptions());
+		}
+		return null;
+	}
+
+	private markdownReaderOptions() {
+		return {
+			skipCodeBlocks: this.settings.skipCodeBlocks,
+			skipFrontmatter: this.settings.skipFrontmatter,
+			stripFootnoteRefs: this.settings.stripFootnoteRefs,
+			maxChunkChars: this.getMaxChunkChars(),
+			editorLineIndicator: this.settings.editorLineIndicator,
+		};
+	}
+
 	// --- MP3 Export ---
 
 	private async runMp3Export(view: MarkdownView): Promise<void> {
@@ -291,68 +303,28 @@ export default class TTSReaderPlugin extends Plugin {
 	// --- Playback lifecycle ---
 
 	private async startPlayback(
-		view: MarkdownView,
+		reader: Reader,
 		startOffset?: number,
 	): Promise<void> {
 		this.stopPlayback();
 
-		const mode = view.getMode();
-		const isEditorMode = mode !== "preview";
-
-		const markdown = view.getViewData();
-		const maxChunkChars = this.getMaxChunkChars();
-		const sentences = extractChunks(
-			markdown,
-			this.settings.skipCodeBlocks,
-			this.settings.skipFrontmatter,
-			maxChunkChars,
-			this.settings.stripFootnoteRefs,
-		);
-
+		const sentences = await reader.extractChunks();
 		if (sentences.length === 0) {
 			new Notice("TTS Reader: No readable text found in this document.");
 			return;
 		}
 
-		// Build offsets once — we need them in editor mode for auto-scroll
-		// and the line indicator, and when startOffset is explicit.
-		let startIndex = 0;
-		const filePath = view.file?.path ?? null;
-		const offsets =
-			isEditorMode || startOffset != null
-				? buildSentenceOffsets(markdown, sentences)
-				: [];
-
-		if (startOffset != null) {
-			startIndex = findSentenceAtOffset(offsets, startOffset);
-		} else if (isEditorMode) {
-			const cursor = view.editor.getCursor();
-			const cursorOffset = view.editor.posToOffset(cursor);
-			const cursorIndex = findSentenceAtOffset(offsets, cursorOffset);
-			// In editor mode, prefer cursor position if it's not at the top
-			// (user deliberately placed it). Fall back to saved bookmark if
-			// cursor is at the beginning.
-			startIndex = cursorIndex > 0
-				? cursorIndex
-				: this.getResumeIndex(filePath, sentences);
-		} else {
-			// Reading View: respect the saved bookmark so Kindle-style resume works.
-			startIndex = this.getResumeIndex(filePath, sentences);
-		}
+		const resumeIndex = this.getResumeIndex(reader.filePath, sentences);
+		const startIndex = reader.resolveStartIndex(
+			sentences,
+			startOffset,
+			resumeIndex,
+		);
 
 		const engine = await this.getEngine();
 		if (!engine) return;
 
-		// Set up highlighter — only attach to DOM in Reading View
 		this.highlighter = new Highlighter();
-		const previewEl = isEditorMode
-			? null
-			: (view.contentEl.querySelector(
-					".markdown-preview-view",
-				) as HTMLElement | null);
-		if (previewEl) {
-			this.highlighter.setContainer(previewEl);
-		}
 
 		this.controller = new PlaybackController(
 			engine,
@@ -361,25 +333,49 @@ export default class TTSReaderPlugin extends Plugin {
 		);
 		this.controller.setBufferAhead(this.getBufferAhead());
 
-		this.playbackLeaf = view.leaf;
-		this.playbackFilePath = view.file?.path ?? null;
+		this.reader = reader;
+		this.playbackLeaf = reader.leaf;
+		this.playbackFilePath = reader.filePath;
+
+		// Per-sentence: let the reader prep the DOM (page scroll, layer render),
+		// then hand the Highlighter the right container for the sentence.
+		this.controller.onBeforeSentence = async (ctx) => {
+			await reader.prepareForSentence(ctx);
+			const container = reader.getHighlightContainer(ctx);
+			if (container) {
+				this.highlighter?.setContainer(container);
+			}
+		};
+
+		// Seed the container now so the first highlight doesn't race against
+		// an unset container (markdown case: preview element is stable).
+		const seedContainer = reader.getHighlightContainer({
+			index: startIndex,
+			sentence: sentences[startIndex] ?? sentences[0],
+		});
+		if (seedContainer) this.highlighter.setContainer(seedContainer);
+
+		// Toolbar is hosted in the reader's view content element.
+		const viewContentEl = (reader.leaf.view as any)?.contentEl as
+			| HTMLElement
+			| undefined;
+		if (!viewContentEl) {
+			new Notice("TTS Reader: View has no content element.");
+			return;
+		}
 		this.toolbar = new Toolbar(
-			view.contentEl,
+			viewContentEl,
 			this.settings.speed,
 			this.settings.toolbarPadding,
 		);
 		this.wireToolbar();
 		this.wireController();
 
-		if (isEditorMode) {
-			this.setupEditorClickToJump(view);
-			// Always keep offsets + cm view handy in editor mode — the line
-			// indicator, auto-scroll, and locate button all need them.
-			this.editorCmView = (view.editor as any).cm ?? null;
-			this.sentenceOffsets = offsets;
-		} else if (previewEl) {
-			this.setupClickToJump(previewEl);
-		}
+		this.readerTeardown = reader.setupClickToJump(
+			this.controller,
+			this.highlighter,
+			() => this.settings.speed,
+		);
 
 		if (startIndex > 0) {
 			new Notice(
@@ -392,12 +388,26 @@ export default class TTSReaderPlugin extends Plugin {
 	}
 
 	private stopPlayback(): void {
-		// Persist the bookmark before we drop the file reference.
+		// Persist the bookmark before we drop the reader reference.
 		this.flushReadingPosition();
 		this.playbackLeaf = null;
 		this.playbackFilePath = null;
-		this.clearEditorIndicator();
-		this.teardownClickToJump();
+		if (this.readerTeardown) {
+			try {
+				this.readerTeardown();
+			} catch (err) {
+				console.error("TTS Reader: reader teardown error:", err);
+			}
+			this.readerTeardown = null;
+		}
+		if (this.reader) {
+			try {
+				this.reader.destroy();
+			} catch (err) {
+				console.error("TTS Reader: reader.destroy error:", err);
+			}
+			this.reader = null;
+		}
 		if (this.controller) {
 			this.controller.stop();
 			this.controller = null;
@@ -535,9 +545,12 @@ export default class TTSReaderPlugin extends Plugin {
 			controller.setAutoScroll(this.settings.autoScroll);
 		};
 		toolbar.onLocate = () => {
-			this.highlighter?.scrollToCurrent();
-			const idx = this.controller?.sentenceIndex ?? -1;
-			if (idx >= 0) this.scrollEditorToSentence(idx);
+			if (!this.reader || !this.highlighter) return;
+			const idx = controller.sentenceIndex;
+			const sentence = controller.sentences[idx];
+			const ctx: SentenceContext | null =
+				idx >= 0 && sentence ? { index: idx, sentence } : null;
+			this.reader.locateCurrent(ctx, this.highlighter);
 		};
 		toolbar.updateAutoScroll(this.settings.autoScroll);
 	}
@@ -552,10 +565,13 @@ export default class TTSReaderPlugin extends Plugin {
 
 		this.controller.onSentenceChange = (index, total) => {
 			toolbar.updateProgress(index, total);
-			this.updateEditorIndicator(index);
 			this.scheduleSaveReadingPosition(index);
-			if (this.settings.autoScroll) {
-				this.scrollEditorToSentence(index);
+			const sentence = this.controller?.sentences[index];
+			if (sentence && this.reader) {
+				this.reader.onSentenceChanged(
+					{ index, sentence },
+					this.settings.autoScroll,
+				);
 			}
 		};
 
@@ -567,8 +583,14 @@ export default class TTSReaderPlugin extends Plugin {
 		this.controller.onComplete = () => {
 			new Notice("TTS Reader: Finished reading.");
 			this.clearReadingPosition(this.playbackFilePath);
-			this.clearEditorIndicator();
-			this.teardownClickToJump();
+			if (this.readerTeardown) {
+				try { this.readerTeardown(); } catch {}
+				this.readerTeardown = null;
+			}
+			if (this.reader) {
+				try { this.reader.destroy(); } catch {}
+				this.reader = null;
+			}
 			this.playbackLeaf = null;
 			this.playbackFilePath = null;
 			if (this.toolbar) {
@@ -578,220 +600,6 @@ export default class TTSReaderPlugin extends Plugin {
 			this.controller = null;
 			this.highlighter = null;
 		};
-	}
-
-	// --- Click-to-jump ---
-
-	private setupClickToJump(previewEl: HTMLElement): void {
-		this.clickHandler = (e: MouseEvent) => {
-			try {
-			if (!this.controller || this.controller.state === "idle") return;
-			if ((e.target as HTMLElement)?.closest(".tts-reader-toolbar"))
-				return;
-
-			const sentences = this.controller.sentences;
-
-			// Estimate click position as a fraction of the document.
-			// Used to disambiguate when the same text appears multiple times.
-			const clickProgress = this.estimateClickProgress(
-				e.target as HTMLElement,
-				previewEl,
-			);
-
-			// Use caretRangeFromPoint to get a text snippet at the click
-			const caretRange = document.caretRangeFromPoint(
-				e.clientX,
-				e.clientY,
-			);
-			if (
-				caretRange &&
-				caretRange.startContainer.nodeType === Node.TEXT_NODE
-			) {
-				const clickedNode = caretRange.startContainer as Text;
-				const clickOffset = caretRange.startOffset;
-				const nodeText = clickedNode.textContent ?? "";
-				const ctxStart = Math.max(0, clickOffset - 10);
-				const ctxEnd = Math.min(nodeText.length, clickOffset + 10);
-				const snippet = nodeText
-					.substring(ctxStart, ctxEnd)
-					.trim();
-
-				if (snippet.length >= 3) {
-					// Find all sentences matching the snippet
-					const matchingIndices: number[] = [];
-					for (let i = 0; i < sentences.length; i++) {
-						if (sentences[i].text.includes(snippet)) {
-							matchingIndices.push(i);
-						}
-					}
-
-					if (matchingIndices.length === 1) {
-						// Unique — jump directly
-						this.controller.jumpTo(
-							matchingIndices[0],
-							this.settings.speed,
-						);
-						return;
-					}
-
-					if (matchingIndices.length > 1 && this.highlighter) {
-						// Duplicate text — ask the highlighter which
-						// occurrence contains the click position
-						const sentText = sentences[matchingIndices[0]].text;
-						const occ = this.highlighter.getOccurrenceAt(
-							sentText,
-							clickedNode,
-							clickOffset,
-						);
-						if (occ >= 0) {
-							// Find the sentence with this occurrence
-							for (const idx of matchingIndices) {
-								if (sentences[idx].occurrence === occ) {
-									this.controller.jumpTo(
-										idx,
-										this.settings.speed,
-									);
-									return;
-								}
-							}
-						}
-						// Fallback: use position estimate
-						const idx = this.findClosestSentence(
-							sentences,
-							snippet,
-							clickProgress,
-						);
-						if (idx >= 0) {
-							this.controller.jumpTo(
-								idx,
-								this.settings.speed,
-							);
-							return;
-						}
-					}
-				}
-			}
-
-			// Fallback: match by block element text
-			const target = e.target as HTMLElement;
-			const block = target.closest(
-				"p, h1, h2, h3, h4, h5, h6, li, td, th, dt, dd, blockquote",
-			);
-			if (!block) return;
-
-			const blockText = block.textContent ?? "";
-			if (blockText.trim().length === 0) return;
-
-			const idx = this.findClosestSentence(
-				sentences,
-				blockText,
-				clickProgress,
-			);
-			if (idx >= 0) {
-				this.controller.jumpTo(idx, this.settings.speed);
-			}
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				console.error("TTS Reader: click-to-jump error:", err);
-				new Notice(`TTS Reader: click-to-jump failed: ${msg}`, 6000);
-			}
-		};
-
-		this.clickTarget = previewEl;
-		previewEl.addEventListener("click", this.clickHandler);
-	}
-
-	/**
-	 * Estimate where in the document the user clicked, as a 0–1 ratio.
-	 * Uses the element's visual position relative to the scroll container.
-	 */
-	private estimateClickProgress(
-		target: HTMLElement,
-		container: HTMLElement,
-	): number {
-		const scrollContainer =
-			container.closest(".markdown-preview-view") ?? container;
-		const scrollEl = scrollContainer as HTMLElement;
-		const totalHeight = scrollEl.scrollHeight;
-		if (totalHeight === 0) return 0;
-
-		const rect = target.getBoundingClientRect();
-		const containerRect = scrollEl.getBoundingClientRect();
-		const docPosition =
-			scrollEl.scrollTop + rect.top - containerRect.top;
-		return Math.max(0, Math.min(1, docPosition / totalHeight));
-	}
-
-	/**
-	 * Find all sentences containing `snippet`, then pick the one whose
-	 * expected position (index/total) is closest to `clickProgress`.
-	 */
-	private findClosestSentence(
-		sentences: readonly SentenceInfo[],
-		snippet: string,
-		clickProgress: number,
-	): number {
-		const matches: number[] = [];
-		for (let i = 0; i < sentences.length; i++) {
-			if (sentences[i].text.includes(snippet)) {
-				matches.push(i);
-			}
-		}
-		if (matches.length === 0) return -1;
-		if (matches.length === 1) return matches[0];
-
-		// Use cumulative character length for more accurate position mapping
-		let totalChars = 0;
-		const charPos: number[] = [];
-		for (let i = 0; i < sentences.length; i++) {
-			charPos.push(totalChars);
-			totalChars += sentences[i].text.length;
-		}
-
-		let best = matches[0];
-		let bestDist = Math.abs(
-			charPos[matches[0]] / totalChars - clickProgress,
-		);
-		for (let i = 1; i < matches.length; i++) {
-			const dist = Math.abs(
-				charPos[matches[i]] / totalChars - clickProgress,
-			);
-			if (dist < bestDist) {
-				best = matches[i];
-				bestDist = dist;
-			}
-		}
-		return best;
-	}
-
-	// --- Editor scroll ---
-
-	/**
-	 * Scroll the CodeMirror editor so the current sentence is visible.
-	 * No-op in preview mode or before offsets are built.
-	 */
-	private scrollEditorToSentence(index: number): void {
-		const cm = this.getLiveEditorView();
-		if (!cm) return;
-		const pos = this.sentenceOffsets[index];
-		if (pos == null) return;
-		try {
-			cm.dispatch({
-				effects: EditorView.scrollIntoView(pos, { y: "center" }),
-			});
-		} catch {
-			// EditorView destroyed (mode switch, leaf closed)
-		}
-	}
-
-	/**
-	 * Return the current CM view, looking it up fresh each time because it
-	 * gets rebuilt on every preview ↔ edit mode switch.
-	 */
-	private getLiveEditorView(): EditorView | null {
-		const view = this.playbackLeaf?.view as MarkdownView | undefined;
-		if (!view || view.getMode() === "preview") return null;
-		return (view.editor as any)?.cm ?? null;
 	}
 
 	// --- Resume bookmark ---
@@ -874,134 +682,6 @@ export default class TTSReaderPlugin extends Plugin {
 
 		// Text anchor gone — clamp saved index and hope for the best.
 		return Math.min(saved.sentenceIndex, Math.max(0, sentences.length - 1));
-	}
-
-	// --- Editor line indicator ---
-
-	private updateEditorIndicator(index: number): void {
-		if (!this.settings.editorLineIndicator) return;
-		if (this.sentenceOffsets.length === 0) return;
-		const cm = this.getLiveEditorView();
-		if (!cm) return;
-
-		const from = this.sentenceOffsets[index];
-		// Use next sentence offset (or estimate) to cover multi-line sentences
-		const to =
-			index + 1 < this.sentenceOffsets.length
-				? this.sentenceOffsets[index + 1] - 1
-				: from +
-					(this.controller?.sentences[index]?.text.length ?? 0);
-
-		try {
-			updateTTSLineIndicator(cm, { from, to });
-		} catch {
-			// EditorView may be destroyed
-		}
-	}
-
-	private clearEditorIndicator(): void {
-		if (this.editorCmView) {
-			try {
-				updateTTSLineIndicator(this.editorCmView, null);
-			} catch {
-				// EditorView may be destroyed
-			}
-		}
-		this.editorCmView = null;
-		this.sentenceOffsets = [];
-	}
-
-	// --- Editor click-to-jump (Ctrl+Alt+Click / Cmd+Alt+Click) ---
-
-	private setupEditorClickToJump(view: MarkdownView): void {
-		this.editorClickHandler = (e: MouseEvent) => {
-			try {
-			if (!this.controller || this.controller.state === "idle") return;
-			if ((e.target as HTMLElement)?.closest(".tts-reader-toolbar"))
-				return;
-
-			// Ctrl+Alt (Win/Linux) or Cmd+Alt (Mac)
-			const modKey = Platform.isMacOS ? e.metaKey : e.ctrlKey;
-			if (!modKey || !e.altKey) return;
-
-			e.preventDefault();
-			e.stopImmediatePropagation();
-
-			const caretRange = document.caretRangeFromPoint(
-				e.clientX,
-				e.clientY,
-			);
-			if (
-				!caretRange ||
-				caretRange.startContainer.nodeType !== Node.TEXT_NODE
-			)
-				return;
-
-			const clickedNode = caretRange.startContainer as Text;
-			const clickOffset = caretRange.startOffset;
-			const nodeText = clickedNode.textContent ?? "";
-
-			// Extract a snippet around the click point
-			const ctxStart = Math.max(0, clickOffset - 20);
-			const ctxEnd = Math.min(nodeText.length, clickOffset + 20);
-			const snippet = nodeText.substring(ctxStart, ctxEnd).trim();
-			if (snippet.length < 3) return;
-
-			const markdown = view.getViewData();
-			const sentences = this.controller.sentences;
-			const offsets = buildSentenceOffsets(markdown, sentences);
-
-			// Try to find the snippet in the raw markdown
-			const snippetPos = markdown.indexOf(snippet);
-			if (snippetPos >= 0) {
-				const idx = findSentenceAtOffset(offsets, snippetPos);
-				this.controller.jumpTo(idx, this.settings.speed);
-				return;
-			}
-
-			// Fallback: match snippet against sentence text
-			for (let i = 0; i < sentences.length; i++) {
-				if (sentences[i].text.includes(snippet)) {
-					this.controller.jumpTo(i, this.settings.speed);
-					return;
-				}
-			}
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				console.error("TTS Reader: editor click-to-jump error:", err);
-				new Notice(`TTS Reader: click-to-jump failed: ${msg}`, 6000);
-			}
-		};
-
-		const editorEl = view.contentEl.querySelector(
-			".cm-editor",
-		) as HTMLElement | null;
-		if (editorEl) {
-			this.editorClickTarget = editorEl;
-			editorEl.addEventListener(
-				"mousedown",
-				this.editorClickHandler,
-				true,
-			);
-		}
-	}
-
-	private teardownClickToJump(): void {
-		if (this.clickHandler && this.clickTarget) {
-			this.clickTarget.removeEventListener("click", this.clickHandler);
-		}
-		this.clickHandler = null;
-		this.clickTarget = null;
-
-		if (this.editorClickHandler && this.editorClickTarget) {
-			this.editorClickTarget.removeEventListener(
-				"mousedown",
-				this.editorClickHandler,
-				true,
-			);
-		}
-		this.editorClickHandler = null;
-		this.editorClickTarget = null;
 	}
 
 	/** Max chars per TTS chunk. 0 = sentence-level (DeepInfra/WebSpeech). */
